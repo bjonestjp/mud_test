@@ -35,6 +35,8 @@ VITE_SUPABASE_ANON_KEY=
 
 For the fuller handoff sequence, use [docs/supabase-launch-checklist.md](docs/supabase-launch-checklist.md).
 
+For a free HTTPS playtest deployment, use [docs/deploy-vercel.md](docs/deploy-vercel.md).
+
 The frontend calls these Supabase RPCs:
 
 - `settle_player_income`
