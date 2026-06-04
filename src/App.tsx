@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Coffee,
-  Crosshair,
   LocateFixed,
   LogIn,
   LogOut,
@@ -12,7 +11,8 @@ import {
   Timer,
   Trophy,
   UserPlus,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import { GameMap } from "./components/GameMap";
 import type { LocationFocus } from "./components/GameMap";
@@ -28,6 +28,8 @@ const EMPTY_STATE: GameState = {
   isDemoMode: false
 };
 
+type ActivePanel = "newShop" | "shops" | "leaderboard" | null;
+
 export default function App() {
   const adapter = useMemo(() => createGameAdapter(), []);
   const [game, setGame] = useState<GameState>(EMPTY_STATE);
@@ -38,6 +40,7 @@ export default function App() {
   const [shopName, setShopName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
   const [notice, setNotice] = useState("");
   const [isBusy, setIsBusy] = useState(false);
 
@@ -128,6 +131,7 @@ export default function App() {
       });
       setShopName("");
       setSelectedPinId(next.pins[0]?.id ?? null);
+      setActivePanel(null);
       return next;
     }, "Shop placed");
 
@@ -213,7 +217,10 @@ export default function App() {
         focusLocation={focusLocation}
         selectedPinId={selectedPinId}
         isDemoMode={game.isDemoMode}
-        onSelectPin={(pin) => setSelectedPinId(pin.id)}
+        onSelectPin={(pin) => {
+          setSelectedPinId(pin.id);
+          if (pin.ownerId === game.profile?.id) setActivePanel("shops");
+        }}
         onMapCenterChange={setMapCenter}
       />
 
@@ -244,90 +251,204 @@ export default function App() {
         </div>
       </header>
 
-      <aside className="control-panel">
-        <section className="drop-panel">
-          <div className="section-title">
-            <MapPin size={18} />
-            <h2>New Shop</h2>
-          </div>
-          <div className="field-row">
-            <input
-              value={shopName}
-              placeholder="Shop name"
-              onChange={(event) => setShopName(event.target.value)}
-              maxLength={42}
-            />
-            <button className="primary-action primary-action--square" type="button" onClick={placePin} disabled={isBusy || (game.profile?.pointsBalance ?? 0) < GAME_CONFIG.standardPinCost} title="Drop shop">
-              <Plus size={20} />
+      <nav className="bottom-actions" aria-label="Game actions">
+        <button
+          className={activePanel === "newShop" ? "bottom-action bottom-action--active" : "bottom-action"}
+          type="button"
+          onClick={() => setActivePanel("newShop")}
+        >
+          <MapPin size={20} />
+          <span>New</span>
+        </button>
+        <button
+          className={activePanel === "shops" ? "bottom-action bottom-action--active" : "bottom-action"}
+          type="button"
+          onClick={() => setActivePanel("shops")}
+        >
+          <Users size={20} />
+          <span>Shops</span>
+        </button>
+        <button
+          className={activePanel === "leaderboard" ? "bottom-action bottom-action--active" : "bottom-action"}
+          type="button"
+          onClick={() => setActivePanel("leaderboard")}
+        >
+          <Trophy size={20} />
+          <span>Scores</span>
+        </button>
+      </nav>
+
+      {activePanel ? (
+        <section className="screen-panel" role="dialog" aria-modal="true">
+          <div className="screen-panel__header">
+            <div className="section-title">
+              {activePanel === "newShop" ? <MapPin size={20} /> : null}
+              {activePanel === "shops" ? <Users size={20} /> : null}
+              {activePanel === "leaderboard" ? <Trophy size={20} /> : null}
+              <h2>{getPanelTitle(activePanel)}</h2>
+            </div>
+            <button className="icon-button" type="button" onClick={() => setActivePanel(null)} title="Close">
+              <X size={20} />
             </button>
           </div>
-          <div className="metric-row">
-            <span>Cost</span>
-            <strong>{pointsToTokens(GAME_CONFIG.standardPinCost)} tokens</strong>
-          </div>
-          <div className="metric-row">
-            <span>Location</span>
-            <strong>{game.isDemoMode ? "Simulated" : playerLocation ? "GPS ready" : "GPS"}</strong>
-          </div>
-        </section>
 
-        <section className="pin-detail">
-          <div className="section-title">
-            <Crosshair size={18} />
-            <h2>{selectedPin ? selectedPin.name : "Selected Pin"}</h2>
-          </div>
-          {selectedPin ? (
-            <PinDetail
-              pin={selectedPin}
-              isOwner={selectedPin.ownerId === game.profile?.id}
-              onRestock={restockPin}
-              isBusy={isBusy}
-            />
-          ) : (
-            <p className="muted">Select a shop on the map.</p>
-          )}
-        </section>
+          <div className="screen-panel__body">
+            {activePanel === "newShop" ? (
+              <NewShopPanel
+                shopName={shopName}
+                setShopName={setShopName}
+                pointsBalance={game.profile?.pointsBalance ?? 0}
+                isBusy={isBusy}
+                isDemoMode={game.isDemoMode}
+                hasPlayerLocation={Boolean(playerLocation)}
+                onPlacePin={placePin}
+              />
+            ) : null}
 
-        <section className="pin-list">
-          <div className="section-title">
-            <Users size={18} />
-            <h2>Your Shops</h2>
-          </div>
-          <div className="stack-list">
-            {ownPins.map((pin) => (
-              <button
-                className="list-row"
-                type="button"
-                key={pin.id}
-                onClick={() => setSelectedPinId(pin.id)}
-              >
-                <span>{pin.name}</span>
-                <strong>{formatRate(pin.currentHourlyRate)}/h</strong>
-              </button>
-            ))}
-            {ownPins.length === 0 ? <p className="muted">No shops yet.</p> : null}
-          </div>
-        </section>
+            {activePanel === "shops" ? (
+              <YourShopsPanel
+                pins={ownPins}
+                selectedPin={selectedPin?.ownerId === game.profile?.id ? selectedPin : null}
+                isBusy={isBusy}
+                onSelectPin={setSelectedPinId}
+                onRestock={restockPin}
+              />
+            ) : null}
 
-        <section className="leaderboard">
-          <div className="section-title">
-            <Trophy size={18} />
-            <h2>Leaderboard</h2>
-          </div>
-          <div className="stack-list">
-            {game.leaderboard.map((row, index) => (
-              <div className="list-row list-row--static" key={row.playerId}>
-                <span>{index + 1}. {row.displayName}</span>
-                <strong>{pointsToTokens(row.pointsBalance)}</strong>
-              </div>
-            ))}
+            {activePanel === "leaderboard" ? (
+              <LeaderboardPanel leaderboard={game.leaderboard} />
+            ) : null}
           </div>
         </section>
-      </aside>
+      ) : null}
 
       {notice ? <div className="toast">{notice}</div> : null}
     </main>
   );
+}
+
+function NewShopPanel({
+  shopName,
+  setShopName,
+  pointsBalance,
+  isBusy,
+  isDemoMode,
+  hasPlayerLocation,
+  onPlacePin
+}: {
+  shopName: string;
+  setShopName: (value: string) => void;
+  pointsBalance: number;
+  isBusy: boolean;
+  isDemoMode: boolean;
+  hasPlayerLocation: boolean;
+  onPlacePin: () => void;
+}) {
+  return (
+    <div className="panel-stack">
+      <label className="field">
+        <span>Shop name</span>
+        <input
+          value={shopName}
+          placeholder="New Shop"
+          onChange={(event) => setShopName(event.target.value)}
+          maxLength={42}
+        />
+      </label>
+      <div className="metric-row">
+        <span>Cost</span>
+        <strong>{pointsToTokens(GAME_CONFIG.standardPinCost)} tokens</strong>
+      </div>
+      <div className="metric-row">
+        <span>Location</span>
+        <strong>{isDemoMode ? "Simulated" : hasPlayerLocation ? "GPS ready" : "GPS on drop"}</strong>
+      </div>
+      <button
+        className="primary-action"
+        type="button"
+        onClick={onPlacePin}
+        disabled={isBusy || pointsBalance < GAME_CONFIG.standardPinCost}
+      >
+        <Plus size={20} />
+        Drop Shop
+      </button>
+    </div>
+  );
+}
+
+function YourShopsPanel({
+  pins,
+  selectedPin,
+  isBusy,
+  onSelectPin,
+  onRestock
+}: {
+  pins: GamePin[];
+  selectedPin: GamePin | null;
+  isBusy: boolean;
+  onSelectPin: (pinId: string) => void;
+  onRestock: () => void;
+}) {
+  if (pins.length === 0) {
+    return <p className="muted">No shops yet.</p>;
+  }
+
+  return (
+    <div className="stack-list">
+      {pins.map((pin) => {
+        const isSelected = pin.id === selectedPin?.id;
+
+        return (
+          <article className={isSelected ? "shop-card shop-card--selected" : "shop-card"} key={pin.id}>
+            <button
+              className="list-row"
+              type="button"
+              onClick={() => onSelectPin(pin.id)}
+            >
+              <span>{pin.name}</span>
+              <strong>{formatRate(pin.currentHourlyRate)}/h</strong>
+            </button>
+            {isSelected ? (
+              <PinDetail
+                pin={pin}
+                isOwner
+                onRestock={onRestock}
+                isBusy={isBusy}
+              />
+            ) : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function LeaderboardPanel({
+  leaderboard
+}: {
+  leaderboard: GameState["leaderboard"];
+}) {
+  return (
+    <div className="stack-list">
+      {leaderboard.map((row, index) => (
+        <div className="list-row list-row--static" key={row.playerId}>
+          <span>{index + 1}. {row.displayName}</span>
+          <strong>{pointsToTokens(row.pointsBalance)}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
+  switch (panel) {
+    case "newShop":
+      return "New Shop";
+    case "shops":
+      return "Your Shops";
+    case "leaderboard":
+      return "Leaderboard";
+  }
 }
 
 function PinDetail({

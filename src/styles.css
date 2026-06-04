@@ -105,6 +105,11 @@ button:disabled {
   content: "";
 }
 
+.maplibregl-ctrl-bottom-left,
+.maplibregl-ctrl-bottom-right {
+  bottom: calc(82px + env(safe-area-inset-bottom));
+}
+
 .pin-marker {
   width: 28px;
   height: 34px;
@@ -171,7 +176,8 @@ button:disabled {
 
 .brand-lockup,
 .top-actions,
-.control-panel,
+.bottom-actions,
+.screen-panel,
 .auth-panel,
 .toast {
   border: 1px solid var(--line);
@@ -286,29 +292,78 @@ button:disabled {
   background: var(--blue);
 }
 
-.control-panel {
+.bottom-actions {
   position: absolute;
-  top: 92px;
   right: 16px;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 16px;
   z-index: 4;
-  display: flex;
-  width: min(370px, calc(100vw - 32px));
-  flex-direction: column;
-  gap: 14px;
-  padding: 14px;
-  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 8px;
   border-radius: 8px;
+  pointer-events: auto;
 }
 
-.control-panel section {
-  padding-bottom: 14px;
+.bottom-action {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 54px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.bottom-action--active {
+  border-color: rgba(33, 116, 92, 0.35);
+  background: var(--green);
+  color: #fff;
+}
+
+.screen-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  background: #f7faf6;
+}
+
+.screen-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top)) 16px 12px;
   border-bottom: 1px solid var(--line);
+  background: rgba(252, 253, 250, 0.96);
 }
 
-.control-panel section:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
+.screen-panel__header .section-title {
+  margin-bottom: 0;
+}
+
+.screen-panel__body {
+  flex: 1;
+  padding: 16px;
+  overflow: auto;
+}
+
+.panel-stack {
+  display: grid;
+  gap: 14px;
+  max-width: 560px;
+  margin: 0 auto;
 }
 
 .section-title {
@@ -423,6 +478,8 @@ input:focus {
 .stack-list {
   display: grid;
   gap: 8px;
+  max-width: 680px;
+  margin: 0 auto;
 }
 
 .list-row {
@@ -452,6 +509,18 @@ input:focus {
   cursor: default;
 }
 
+.shop-card {
+  display: grid;
+  gap: 8px;
+}
+
+.shop-card--selected {
+  padding: 8px;
+  border: 1px solid rgba(33, 116, 92, 0.24);
+  border-radius: 8px;
+  background: rgba(33, 116, 92, 0.07);
+}
+
 .muted {
   margin: 0;
   color: var(--muted);
@@ -461,7 +530,7 @@ input:focus {
 .toast {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: calc(86px + env(safe-area-inset-bottom));
   z-index: 8;
   max-width: min(460px, calc(100vw - 32px));
   padding: 12px 14px;
@@ -532,14 +601,30 @@ input:focus {
     padding: 7px 8px;
   }
 
-  .control-panel {
-    top: auto;
+  .top-actions {
+    max-width: calc(100vw - 126px);
+    overflow: hidden;
+  }
+
+  .top-actions .balance-pill {
+    display: none;
+  }
+
+  .bottom-actions {
     right: 10px;
-    bottom: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
     left: 10px;
-    width: auto;
-    max-height: 43vh;
-    padding: 12px;
+  }
+
+  .bottom-action {
+    min-height: 50px;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+  }
+
+  .screen-panel__body {
+    padding: 14px 12px calc(18px + env(safe-area-inset-bottom));
   }
 
   .detail-grid {
