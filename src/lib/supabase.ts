@@ -1,4 +1,11 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { GAME_CONFIG } from "./constants";
+import {
+  baseHourlyRate,
+  competitionPressure,
+  distanceMeters,
+  getBusyLabel
+} from "./geo";
 import type {
   GameAdapter,
   GamePin,
@@ -149,7 +156,14 @@ class SupabaseGameAdapter implements GameAdapter {
   private async fetchPins(): Promise<GamePin[]> {
     const { data, error } = await this.supabase.rpc("get_visible_pins");
     if (error) throw error;
-    return (data ?? []).map(mapPinRow).filter(isVisiblePin);
+
+    const rows = (data ?? []) as Record<string, unknown>[];
+    const malformedRows = rows.filter((row) => !isPinRpcRow(row));
+    if (malformedRows.length > 0) {
+      return this.fetchPinsDirectly();
+    }
+
+    return rows.map(mapPinRow).filter(isVisiblePin);
   }
 
   private async fetchLeaderboard(): Promise<LeaderboardRow[]> {
@@ -164,6 +178,44 @@ class SupabaseGameAdapter implements GameAdapter {
       lifetimeIncome: Number(row.lifetime_income)
     }));
   }
+
+  private async fetchPinsDirectly(): Promise<GamePin[]> {
+    const { data, error } = await this.supabase
+      .from("pins")
+      .select(`
+        id,
+        owner_id,
+        name,
+        pin_type,
+        lat,
+        lng,
+        busy_score,
+        placed_at,
+        visible_at,
+        last_restocked_at,
+        restock_due_at,
+        expires_at,
+        disabled_at,
+        profiles!pins_owner_id_fkey(display_name, player_color)
+      `)
+      .lte("visible_at", new Date().toISOString())
+      .order("placed_at", { ascending: false });
+
+    if (error) throw error;
+    return calculateFallbackPinRates(
+      ((data ?? []) as Record<string, unknown>[])
+        .map(mapDirectPinRow)
+        .filter(isVisiblePin)
+    );
+  }
+}
+
+function isPinRpcRow(row: Record<string, unknown>): boolean {
+  return (
+    typeof row.owner_id === "string" &&
+    Number.isFinite(Number(row.lat)) &&
+    Number.isFinite(Number(row.lng))
+  );
 }
 
 function mapPinRow(row: Record<string, unknown>): GamePin {
@@ -187,6 +239,77 @@ function mapPinRow(row: Record<string, unknown>): GamePin {
     currentHourlyRate: Number(row.current_hourly_rate),
     competitionPressure: Number(row.competition_pressure)
   };
+}
+
+function mapDirectPinRow(row: Record<string, unknown>): GamePin {
+  const profile = getRelatedProfile(row.profiles);
+  const busyScore = Number(row.busy_score);
+
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    ownerName: String(profile.display_name ?? "Player"),
+    ownerColor: safeColor(profile.player_color, String(row.owner_id)),
+    name: String(row.name),
+    pinType: row.pin_type as GamePin["pinType"],
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    busyScore,
+    busyLabel: getBusyLabel(busyScore),
+    placedAt: String(row.placed_at),
+    visibleAt: String(row.visible_at),
+    lastRestockedAt: row.last_restocked_at ? String(row.last_restocked_at) : null,
+    restockDueAt: row.restock_due_at ? String(row.restock_due_at) : null,
+    expiresAt: row.expires_at ? String(row.expires_at) : null,
+    status: getDirectPinStatus(row),
+    currentHourlyRate: 0,
+    competitionPressure: 0
+  };
+}
+
+function getRelatedProfile(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) return (value[0] ?? {}) as Record<string, unknown>;
+  if (typeof value === "object" && value !== null) return value as Record<string, unknown>;
+  return {};
+}
+
+function getDirectPinStatus(row: Record<string, unknown>): GamePin["status"] {
+  if (row.disabled_at) return "disabled";
+
+  const pinType = row.pin_type as GamePin["pinType"];
+  const expiresAt = row.expires_at ? new Date(String(row.expires_at)).getTime() : null;
+  const restockDueAt = row.restock_due_at ? new Date(String(row.restock_due_at)).getTime() : null;
+  const now = Date.now();
+
+  if (pinType === "temporary" && expiresAt !== null && expiresAt <= now) return "expired";
+  if (pinType === "standard" && restockDueAt !== null && restockDueAt <= now) return "needs_restock";
+  return "stocked";
+}
+
+function calculateFallbackPinRates(pins: GamePin[]): GamePin[] {
+  return pins.map((pin) => {
+    if (pin.status !== "stocked") {
+      return {
+        ...pin,
+        currentHourlyRate: 0,
+        competitionPressure: 0
+      };
+    }
+
+    const totalPressure = pins.reduce((sum, other) => {
+      if (other.id === pin.id || other.status !== "stocked") return sum;
+      const distance = distanceMeters(pin, other);
+      return sum + competitionPressure(distance, GAME_CONFIG.competitionRadiusM);
+    }, 0);
+
+    return {
+      ...pin,
+      competitionPressure: Number(totalPressure.toFixed(3)),
+      currentHourlyRate: Number(
+        (baseHourlyRate(pin.busyScore) / (1 + totalPressure)).toFixed(2)
+      )
+    };
+  });
 }
 
 function isVisiblePin(pin: GamePin): boolean {
