@@ -669,6 +669,11 @@ input:focus {
   transform: translateX(-50%);
 }
 
+.toast--error {
+  color: #fff;
+  background: rgba(186, 60, 58, 0.94);
+}
+
 .auth-screen {
   min-height: 100%;
   display: grid;

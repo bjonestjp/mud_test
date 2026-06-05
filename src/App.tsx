@@ -30,6 +30,11 @@ const EMPTY_STATE: GameState = {
 
 type ActivePanel = "build" | "shops" | "leaderboard" | null;
 
+interface Notice {
+  message: string;
+  tone: "info" | "error";
+}
+
 interface ShopTypeOption {
   pinType: PinType;
   label: string;
@@ -73,7 +78,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   const selectedPin = game.pins.find((pin) => pin.id === selectedPinId) ?? null;
@@ -83,13 +88,13 @@ export default function App() {
   const run = useCallback(
     async (work: () => Promise<GameState | void>, success?: string) => {
       setIsBusy(true);
-      setNotice("");
+      setNotice(null);
       try {
         const next = await work();
         if (next) setGame(next);
-        if (success) setNotice(success);
+        if (success) setNotice({ message: success, tone: "info" });
       } catch (error) {
-        setNotice(formatErrorMessage(error));
+        setNotice({ message: formatErrorMessage(error), tone: "error" });
       } finally {
         setIsBusy(false);
       }
@@ -103,8 +108,18 @@ export default function App() {
 
   useEffect(() => {
     const authNotice = readAuthNoticeFromUrl();
-    if (authNotice) setNotice(authNotice);
+    if (authNotice) setNotice({ message: authNotice, tone: "error" });
   }, []);
+
+  useEffect(() => {
+    if (notice?.tone !== "info") return;
+
+    const timeout = window.setTimeout(() => {
+      setNotice((current) => (current === notice ? null : current));
+    }, 2600);
+
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   useEffect(() => {
     if (!game.isDemoMode || playerLocation) return;
@@ -126,7 +141,10 @@ export default function App() {
   const signUp = () => {
     const normalizedEmail = email.trim();
     if (!normalizedEmail || password.length < 6) {
-      setNotice("Enter an email and a password of at least 6 characters.");
+      setNotice({
+        message: "Enter an email and a password of at least 6 characters.",
+        tone: "error"
+      });
       return;
     }
 
@@ -260,7 +278,7 @@ export default function App() {
             <UserPlus size={18} />
             Create Account
           </button>
-          {notice ? <p className="notice">{notice}</p> : null}
+          {notice ? <p className="notice">{notice.message}</p> : null}
         </form>
       </main>
     );
@@ -389,7 +407,7 @@ export default function App() {
         </section>
       ) : null}
 
-      {notice ? <div className="toast">{notice}</div> : null}
+      {notice ? <div className={`toast toast--${notice.tone}`}>{notice.message}</div> : null}
     </main>
   );
 }
