@@ -28,8 +28,21 @@ interface BuildPreview {
   location: LocationReading;
 }
 
+interface MarkerEntry {
+  marker: Marker;
+  pin: GamePin;
+}
+
+interface ProjectedMarkerEntry extends MarkerEntry {
+  point: { x: number; y: number };
+}
+
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 const EARTH_RADIUS_M = 6_371_000;
+const SHINGLE_DISTANCE_PX = 34;
+const SHINGLE_RING_SIZE = 6;
+const SHINGLE_FIRST_RING_RADIUS_PX = 17;
+const SHINGLE_RING_STEP_PX = 11;
 const COMPETITION_RADIUS_SOURCE_ID = "competition-radius";
 const COMPETITION_RADIUS_FILL_LAYER_ID = "competition-radius-fill";
 const COMPETITION_RADIUS_LINE_LAYER_ID = "competition-radius-line";
@@ -51,7 +64,7 @@ export function GameMap({
 }: GameMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
-  const markersRef = useRef<Marker[]>([]);
+  const markersRef = useRef<MarkerEntry[]>([]);
   const playerLocationMarkerRef = useRef<Marker | null>(null);
   const buildPreviewMarkerRef = useRef<Marker | null>(null);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
@@ -96,7 +109,7 @@ export function GameMap({
     mapRef.current = map;
 
     return () => {
-      markersRef.current.forEach((marker) => marker.remove());
+      markersRef.current.forEach((entry) => entry.marker.remove());
       markersRef.current = [];
       playerLocationMarkerRef.current?.remove();
       playerLocationMarkerRef.current = null;
@@ -111,7 +124,17 @@ export function GameMap({
     const map = mapRef.current;
     if (!map) return;
 
-    markersRef.current.forEach((marker) => marker.remove());
+    let shingleFrame: number | null = null;
+    const scheduleShingles = () => {
+      if (shingleFrame !== null) return;
+
+      shingleFrame = window.requestAnimationFrame(() => {
+        shingleFrame = null;
+        updateMarkerShingles(map, markersRef.current, selectedPinId);
+      });
+    };
+
+    markersRef.current.forEach((entry) => entry.marker.remove());
     markersRef.current = visiblePins.map((pin, index) => {
       const element = document.createElement("button");
       element.type = "button";
@@ -158,11 +181,19 @@ export function GameMap({
         .setLngLat([pin.lng, pin.lat])
         .addTo(map);
 
-      return marker;
+      return { marker, pin };
     });
+    updateMarkerShingles(map, markersRef.current, selectedPinId);
+    map.on("move", scheduleShingles);
+    map.on("zoom", scheduleShingles);
+    map.on("resize", scheduleShingles);
 
     return () => {
-      markersRef.current.forEach((marker) => marker.remove());
+      if (shingleFrame !== null) window.cancelAnimationFrame(shingleFrame);
+      map.off("move", scheduleShingles);
+      map.off("zoom", scheduleShingles);
+      map.off("resize", scheduleShingles);
+      markersRef.current.forEach((entry) => entry.marker.remove());
       markersRef.current = [];
     };
   }, [affectedPinIds, currentPlayerId, onSelectPin, selectedPinId, visiblePins]);
@@ -312,6 +343,89 @@ function ensureCompetitionRadiusLayers(map: Map): void {
       }
     });
   }
+}
+
+function updateMarkerShingles(
+  map: Map,
+  entries: MarkerEntry[],
+  selectedPinId: string | null
+): void {
+  if (entries.length === 0) return;
+
+  const projectedEntries = entries.map((entry) => {
+    const point = map.project([entry.pin.lng, entry.pin.lat]);
+    return {
+      ...entry,
+      point: { x: point.x, y: point.y }
+    };
+  });
+
+  for (const group of getShingleGroups(projectedEntries)) {
+    const orderedGroup = [...group].sort((a, b) => {
+      if (a.pin.id === selectedPinId) return -1;
+      if (b.pin.id === selectedPinId) return 1;
+      return a.pin.id.localeCompare(b.pin.id);
+    });
+
+    orderedGroup.forEach((entry, index) => {
+      entry.marker.setOffset(getShingleOffset(index));
+    });
+  }
+}
+
+function getShingleGroups(entries: ProjectedMarkerEntry[]): ProjectedMarkerEntry[][] {
+  const groups: ProjectedMarkerEntry[][] = [];
+  const visited = new Set<string>();
+
+  for (const entry of entries) {
+    if (visited.has(entry.pin.id)) continue;
+
+    const group: ProjectedMarkerEntry[] = [];
+    const queue = [entry];
+    visited.add(entry.pin.id);
+
+    for (let index = 0; index < queue.length; index += 1) {
+      const current = queue[index];
+      group.push(current);
+
+      for (const candidate of entries) {
+        if (visited.has(candidate.pin.id)) continue;
+        if (screenDistance(current.point, candidate.point) > SHINGLE_DISTANCE_PX) continue;
+
+        visited.add(candidate.pin.id);
+        queue.push(candidate);
+      }
+    }
+
+    groups.push(group);
+  }
+
+  return groups;
+}
+
+function getShingleOffset(index: number): [number, number] {
+  if (index === 0) return [0, 0];
+
+  const shingleIndex = index - 1;
+  const ring = Math.floor(shingleIndex / SHINGLE_RING_SIZE);
+  const positionInRing = shingleIndex % SHINGLE_RING_SIZE;
+  const radius = SHINGLE_FIRST_RING_RADIUS_PX + ring * SHINGLE_RING_STEP_PX;
+  const angle =
+    -Math.PI / 2 +
+    (positionInRing / SHINGLE_RING_SIZE) * Math.PI * 2 +
+    ring * 0.35;
+
+  return [
+    Math.round(Math.cos(angle) * radius),
+    Math.round(Math.sin(angle) * radius)
+  ];
+}
+
+function screenDistance(
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function createRadiusFeatureCollection(
