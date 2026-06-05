@@ -90,6 +90,7 @@ export default function App() {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const selectedPin = game.pins.find((pin) => pin.id === selectedPinId) ?? null;
+  const selectedOwnPin = selectedPin?.ownerId === game.profile?.id ? selectedPin : null;
   const pendingRestockPin = game.pins.find((pin) => pin.id === pendingRestockPinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
@@ -234,6 +235,13 @@ export default function App() {
     setPendingRestockPinId(pinId);
   };
 
+  const openSelectedShop = () => {
+    if (!selectedOwnPin) return;
+
+    setSelectedPinId(selectedOwnPin.id);
+    setActivePanel("shops");
+  };
+
   const cancelRestock = () => {
     setPendingRestockPinId(null);
   };
@@ -318,7 +326,6 @@ export default function App() {
         isDemoMode={game.isDemoMode}
         onSelectPin={(pin) => {
           setSelectedPinId(pin.id);
-          if (pin.ownerId === game.profile?.id) setActivePanel("shops");
         }}
         onMapCenterChange={setMapCenter}
       />
@@ -345,6 +352,13 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {selectedOwnPin && !activePanel && !pendingBuild && !pendingRestockPin ? (
+        <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
+          <Coffee size={18} />
+          <span>{selectedOwnPin.name}</span>
+        </button>
+      ) : null}
 
       {pendingBuild ? (
         <BuildConfirmBar
@@ -415,7 +429,7 @@ export default function App() {
             {activePanel === "shops" ? (
               <YourShopsPanel
                 pins={ownPins}
-                selectedPin={selectedPin?.ownerId === game.profile?.id ? selectedPin : null}
+                selectedPin={selectedOwnPin}
                 isBusy={isBusy}
                 nowMs={nowMs}
                 onSelectPin={setSelectedPinId}

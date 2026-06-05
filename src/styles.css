@@ -271,6 +271,7 @@ button:disabled {
 .brand-lockup,
 .top-actions,
 .bottom-actions,
+.selected-shop-button,
 .build-confirm-bar,
 .screen-panel,
 .auth-panel,
@@ -464,6 +465,33 @@ button:disabled {
   padding: 8px;
   border-radius: 8px;
   pointer-events: auto;
+}
+
+.selected-shop-button {
+  position: absolute;
+  right: 16px;
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  left: 16px;
+  z-index: 4;
+  display: inline-flex;
+  min-height: 46px;
+  max-width: 520px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 auto;
+  padding: 0 14px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-weight: 900;
+  pointer-events: auto;
+}
+
+.selected-shop-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bottom-action {
@@ -934,6 +962,12 @@ input:focus {
   .bottom-actions {
     right: 10px;
     bottom: calc(10px + env(safe-area-inset-bottom));
+    left: 10px;
+  }
+
+  .selected-shop-button {
+    right: 10px;
+    bottom: calc(82px + env(safe-area-inset-bottom));
     left: 10px;
   }
 
