@@ -112,7 +112,9 @@ button:disabled {
 
 .pin-marker {
   --pin-color: var(--red);
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   display: grid;
   width: 30px;
   height: 30px;
@@ -251,7 +253,9 @@ button:disabled {
 }
 
 .build-preview-marker {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 34px;
   height: 34px;
   border: 0;
