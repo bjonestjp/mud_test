@@ -565,7 +565,7 @@ function YourShopsPanel({
                 <ColorDot color={pin.ownerColor} />
                 {pin.name}
               </span>
-              <strong>{formatRate(pin.currentHourlyRate)}/h</strong>
+              <strong>{formatHourlyTokenRate(pin.currentHourlyRate)}</strong>
             </button>
             {isSelected ? (
               <PinDetail
@@ -697,7 +697,7 @@ function PinDetail({
       </div>
       <div className="metric-card">
         <span>Income</span>
-        <strong>{formatRate(pin.currentHourlyRate)}/h</strong>
+        <strong>{formatHourlyTokenRate(pin.currentHourlyRate)}</strong>
       </div>
       <div className="metric-card">
         <span>Pressure</span>
@@ -835,6 +835,13 @@ function formatStatus(status: GamePin["status"]): string {
 
 function formatRate(value: number | null | undefined): string {
   return Number.isFinite(value) ? Number(value).toFixed(2) : "0.00";
+}
+
+function formatHourlyTokenRate(pointsPerHour: number | null | undefined): string {
+  const points = Number.isFinite(pointsPerHour) ? Number(pointsPerHour) : 0;
+  const tokensPerHour = points / GAME_CONFIG.tokenUnit;
+  const sign = tokensPerHour >= 0 ? "+" : "";
+  return `${sign}${tokensPerHour.toFixed(2)}/h`;
 }
 
 function ColorDot({ color }: { color: string }) {
