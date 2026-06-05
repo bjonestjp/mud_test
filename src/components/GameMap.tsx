@@ -85,7 +85,7 @@ export function GameMap({
     if (!map) return;
 
     markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = visiblePins.map((pin) => {
+    markersRef.current = visiblePins.map((pin, index) => {
       const element = document.createElement("button");
       element.type = "button";
       element.className = [
@@ -99,6 +99,20 @@ export function GameMap({
       element.title = pin.name;
       element.style.setProperty("--pin-color", pin.ownerColor);
       element.setAttribute("aria-label", pin.name);
+
+      if (pin.status === "stocked" && pin.currentHourlyRate > 0) {
+        const incomePulse = document.createElement("span");
+        const durationMs = getIncomePulseDurationMs(pin.currentHourlyRate);
+        incomePulse.className = "pin-income-bubble";
+        incomePulse.textContent = "+";
+        incomePulse.setAttribute("aria-hidden", "true");
+        incomePulse.style.setProperty("--income-color", pin.ownerColor);
+        incomePulse.style.setProperty("--income-duration", `${durationMs}ms`);
+        incomePulse.style.setProperty("--income-delay", `-${getIncomePulseOffsetMs(pin.id, index, durationMs)}ms`);
+        incomePulse.style.setProperty("--income-drift", `${getIncomePulseDriftPx(pin.id)}px`);
+        element.appendChild(incomePulse);
+      }
+
       element.addEventListener("click", (event) => {
         event.stopPropagation();
         onSelectPin(pin);
@@ -204,6 +218,28 @@ export function GameMap({
       {isDemoMode ? <div className="map-crosshair" aria-hidden="true" /> : null}
     </div>
   );
+}
+
+function getIncomePulseDurationMs(hourlyRate: number): number {
+  const normalizedRate = Math.max(0, Math.min(12, hourlyRate));
+  return Math.round(7200 - normalizedRate * 300);
+}
+
+function getIncomePulseOffsetMs(pinId: string, index: number, durationMs: number): number {
+  return (hashString(pinId) + index * 809) % durationMs;
+}
+
+function getIncomePulseDriftPx(pinId: string): number {
+  return (hashString(`${pinId}:drift`) % 19) - 9;
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return hash;
 }
 
 function hasValidCoordinate<T extends { lat?: number; lng?: number }>(

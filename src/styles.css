@@ -112,10 +112,12 @@ button:disabled {
 
 .pin-marker {
   --pin-color: var(--red);
+  position: relative;
   width: 28px;
   height: 34px;
   border: 0;
   background: transparent;
+  overflow: visible;
   transform: translateY(0);
 }
 
@@ -162,6 +164,56 @@ button:disabled {
   box-shadow:
     0 0 0 5px rgba(47, 95, 159, 0.25),
     0 8px 18px rgba(0, 0, 0, 0.28);
+}
+
+.pin-income-bubble {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--income-color, var(--green));
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.2),
+    0 0 0 4px rgba(255, 255, 255, 0.24);
+  color: #fff;
+  content: "";
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 6px) scale(0.72);
+  animation: pin-income-rise var(--income-duration, 5200ms) ease-out infinite;
+  animation-delay: var(--income-delay, 0ms);
+}
+
+@keyframes pin-income-rise {
+  0%,
+  46% {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.72);
+  }
+
+  56% {
+    opacity: 1;
+    transform: translate(-50%, -4px) scale(0.96);
+  }
+
+  76% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--income-drift, 0px)), -26px) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--income-drift, 0px)), -44px) scale(0.82);
+  }
 }
 
 .build-preview-marker {
@@ -264,6 +316,80 @@ button:disabled {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.player-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.player-summary__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-summary strong {
+  flex-shrink: 0;
+  color: var(--green-dark);
+  font-size: 12px;
+}
+
+.token-progress-ring {
+  --token-progress: 0deg;
+  --token-color: var(--green);
+  position: relative;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background:
+    conic-gradient(var(--token-color) var(--token-progress), rgba(105, 115, 111, 0.18) 0);
+  box-shadow:
+    inset 0 0 0 1px rgba(23, 33, 30, 0.08),
+    0 1px 3px rgba(23, 33, 30, 0.12);
+}
+
+.token-progress-ring::after {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+
+.token-progress-ring::before {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: rgba(33, 116, 92, 0.2);
+  content: "";
+  opacity: 0;
+  transform: scale(0.7);
+}
+
+.token-progress-ring--pulse::before {
+  animation: token-ring-pulse 720ms ease-out;
+}
+
+@keyframes token-ring-pulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.7);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.65);
+  }
 }
 
 .brand-mark {
@@ -735,7 +861,7 @@ input:focus {
   }
 
   .brand-lockup--compact {
-    max-width: min(230px, calc(100vw - 178px));
+    max-width: min(244px, calc(100vw - 170px));
   }
 
   .brand-lockup h1 {
@@ -786,5 +912,15 @@ input:focus {
 
   .detail-grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pin-income-bubble {
+    display: none;
+  }
+
+  .token-progress-ring--pulse::before {
+    animation: none;
   }
 }

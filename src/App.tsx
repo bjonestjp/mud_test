@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Coffee,
   LocateFixed,
@@ -16,7 +16,12 @@ import {
 import { GameMap } from "./components/GameMap";
 import type { LocationFocus } from "./components/GameMap";
 import { createGameAdapter } from "./lib/gameAdapter";
-import { EDINBURGH_CENTER, GAME_CONFIG, pointsToTokens } from "./lib/constants";
+import {
+  EDINBURGH_CENTER,
+  GAME_CONFIG,
+  pointsToTokenProgress,
+  pointsToWholeTokens
+} from "./lib/constants";
 import { requestCurrentLocation } from "./lib/geo";
 import type { GamePin, GameState, LocationReading, PinType } from "./types";
 
@@ -79,6 +84,8 @@ export default function App() {
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const previousBalanceRef = useRef<number | null>(null);
+  const [balancePulseKey, setBalancePulseKey] = useState(0);
 
   const selectedPin = game.pins.find((pin) => pin.id === selectedPinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
@@ -129,6 +136,21 @@ export default function App() {
       accuracy: null
     });
   }, [game.isDemoMode, playerLocation]);
+
+  useEffect(() => {
+    const currentBalance = game.profile?.pointsBalance;
+    if (currentBalance === undefined) {
+      previousBalanceRef.current = null;
+      return;
+    }
+
+    const previousBalance = previousBalanceRef.current;
+    if (previousBalance !== null && currentBalance > previousBalance) {
+      setBalancePulseKey((value) => value + 1);
+    }
+
+    previousBalanceRef.current = currentBalance;
+  }, [game.profile?.pointsBalance]);
 
   const refresh = () => run(() => adapter.refresh(), "Updated");
 
@@ -286,7 +308,7 @@ export default function App() {
           </span>
           <div>
             <h1>mudslingers</h1>
-            <p>{formatPlayerSummary(game)}</p>
+            <PlayerSummary game={game} pulseKey={balancePulseKey} />
           </div>
         </div>
         <div className="top-actions">
@@ -573,7 +595,7 @@ function LeaderboardPanel({
             <ColorDot color={row.playerColor} />
             {index + 1}. {row.displayName}
           </span>
-          <strong>{pointsToTokens(row.pointsBalance)}</strong>
+          <strong>{formatTokenAmount(row.pointsBalance)}</strong>
         </div>
       ))}
     </div>
@@ -591,14 +613,62 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
   }
 }
 
-function formatPlayerSummary(game: GameState): string {
+function PlayerSummary({
+  game,
+  pulseKey
+}: {
+  game: GameState;
+  pulseKey: number;
+}) {
   const name = game.profile?.displayName ?? (game.isDemoMode ? "Demo player" : "Player");
-  return `${name} · ${formatTokenAmount(game.profile?.pointsBalance ?? 0)}`;
+  const points = game.profile?.pointsBalance ?? 0;
+  const wholeTokens = pointsToWholeTokens(points);
+  const progress = pointsToTokenProgress(points);
+
+  return (
+    <div className="player-summary">
+      <span className="player-summary__name">{name}</span>
+      <span aria-hidden="true">·</span>
+      <strong>{formatTokenAmount(points)}</strong>
+      <TokenProgressRing
+        progress={progress}
+        color={game.profile?.playerColor ?? "#21745c"}
+        pulseKey={pulseKey}
+        label={`${Math.round(progress * 100)}% toward token ${wholeTokens + 1}`}
+      />
+    </div>
+  );
 }
 
 function formatTokenAmount(points: number): string {
-  const tokens = pointsToTokens(points);
-  return `${tokens} ${tokens === "1" ? "token" : "tokens"}`;
+  const tokens = pointsToWholeTokens(points);
+  return `${tokens} ${tokens === 1 ? "token" : "tokens"}`;
+}
+
+function TokenProgressRing({
+  progress,
+  color,
+  pulseKey,
+  label
+}: {
+  progress: number;
+  color: string;
+  pulseKey: number;
+  label: string;
+}) {
+  return (
+    <span
+      key={pulseKey}
+      className={pulseKey > 0 ? "token-progress-ring token-progress-ring--pulse" : "token-progress-ring"}
+      style={{
+        "--token-progress": `${Math.max(0, Math.min(1, progress)) * 360}deg`,
+        "--token-color": color
+      } as Record<string, string>}
+      role="img"
+      aria-label={label}
+      title={label}
+    />
+  );
 }
 
 function PinDetail({
