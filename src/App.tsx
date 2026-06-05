@@ -242,6 +242,10 @@ export default function App() {
     setActivePanel("shops");
   };
 
+  const clearSelectedPin = () => {
+    setSelectedPinId(null);
+  };
+
   const cancelRestock = () => {
     setPendingRestockPinId(null);
   };
@@ -353,11 +357,23 @@ export default function App() {
         </div>
       </header>
 
-      {selectedOwnPin && !activePanel && !pendingBuild && !pendingRestockPin ? (
-        <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
-          <Coffee size={18} />
-          <span>{selectedOwnPin.name}</span>
-        </button>
+      {selectedPin && !activePanel && !pendingBuild && !pendingRestockPin ? (
+        <section className="map-selection-card" aria-label="Selected shop">
+          {selectedOwnPin ? (
+            <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
+              <ColorDot color={selectedOwnPin.ownerColor} />
+              <span>{selectedOwnPin.name}</span>
+            </button>
+          ) : (
+            <div className="selected-shop-label">
+              <ColorDot color={selectedPin.ownerColor} />
+              <span>{selectedPin.name}</span>
+            </div>
+          )}
+          <button className="icon-button map-selection-dismiss" type="button" onClick={clearSelectedPin} title="Hide radius" aria-label="Hide radius">
+            <X size={18} />
+          </button>
+        </section>
       ) : null}
 
       {pendingBuild ? (

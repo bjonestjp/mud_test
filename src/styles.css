@@ -166,6 +166,38 @@ button:disabled {
     0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
+.pin-marker--affected::before {
+  box-shadow:
+    0 0 0 5px rgba(240, 174, 73, 0.35),
+    0 5px 16px rgba(0, 0, 0, 0.25);
+}
+
+.pin-marker--selected.pin-marker--affected::before {
+  box-shadow:
+    0 0 0 5px rgba(47, 95, 159, 0.25),
+    0 0 0 9px rgba(240, 174, 73, 0.25),
+    0 8px 18px rgba(0, 0, 0, 0.28);
+}
+
+.pin-impact-badge {
+  position: absolute;
+  right: -7px;
+  bottom: 5px;
+  z-index: 3;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #f0ae49;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.24);
+  color: #3b2b0e;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .pin-income-bubble {
   position: absolute;
   top: -8px;
@@ -271,7 +303,7 @@ button:disabled {
 .brand-lockup,
 .top-actions,
 .bottom-actions,
-.selected-shop-button,
+.map-selection-card,
 .build-confirm-bar,
 .screen-panel,
 .auth-panel,
@@ -467,31 +499,56 @@ button:disabled {
   pointer-events: auto;
 }
 
-.selected-shop-button {
+.map-selection-card {
   position: absolute;
   right: 16px;
   bottom: calc(92px + env(safe-area-inset-bottom));
   left: 16px;
   z-index: 4;
-  display: inline-flex;
-  min-height: 46px;
-  max-width: 520px;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+  max-width: 520px;
   margin: 0 auto;
-  padding: 0 14px;
+  padding: 8px;
   border-radius: 8px;
-  color: var(--ink);
-  font-weight: 900;
   pointer-events: auto;
 }
 
-.selected-shop-button span {
+.selected-shop-button,
+.selected-shop-label {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.selected-shop-button {
+  justify-content: center;
+}
+
+.selected-shop-label {
+  justify-content: flex-start;
+}
+
+.selected-shop-button span,
+.selected-shop-label span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.map-selection-dismiss {
+  width: 44px;
+  height: 44px;
 }
 
 .bottom-action {
@@ -965,7 +1022,7 @@ input:focus {
     left: 10px;
   }
 
-  .selected-shop-button {
+  .map-selection-card {
     right: 10px;
     bottom: calc(82px + env(safe-area-inset-bottom));
     left: 10px;

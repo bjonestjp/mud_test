@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
-import maplibregl, { type LngLatLike, type Map, type Marker } from "maplibre-gl";
-import { EDINBURGH_CENTER } from "../lib/constants";
+import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
+import { EDINBURGH_CENTER, GAME_CONFIG } from "../lib/constants";
+import { distanceMeters } from "../lib/geo";
 import type { GamePin, LocationReading } from "../types";
 
 interface GameMapProps {
@@ -28,6 +29,14 @@ interface BuildPreview {
 }
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const EARTH_RADIUS_M = 6_371_000;
+const COMPETITION_RADIUS_SOURCE_ID = "competition-radius";
+const COMPETITION_RADIUS_FILL_LAYER_ID = "competition-radius-fill";
+const COMPETITION_RADIUS_LINE_LAYER_ID = "competition-radius-line";
+const EMPTY_RADIUS_DATA: Parameters<GeoJSONSource["setData"]>[0] = {
+  type: "FeatureCollection",
+  features: []
+};
 
 export function GameMap({
   pins,
@@ -46,6 +55,22 @@ export function GameMap({
   const playerLocationMarkerRef = useRef<Marker | null>(null);
   const buildPreviewMarkerRef = useRef<Marker | null>(null);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
+  const selectedPin = useMemo(
+    () => visiblePins.find((pin) => pin.id === selectedPinId) ?? null,
+    [selectedPinId, visiblePins]
+  );
+  const affectedPinIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!selectedPin || selectedPin.status !== "stocked") return ids;
+
+    for (const pin of visiblePins) {
+      if (pin.id === selectedPin.id || pin.status !== "stocked") continue;
+      const distance = distanceMeters(selectedPin, pin);
+      if (distance < GAME_CONFIG.competitionRadiusM) ids.add(pin.id);
+    }
+
+    return ids;
+  }, [selectedPin, visiblePins]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -92,7 +117,8 @@ export function GameMap({
         "pin-marker",
         pin.ownerId === currentPlayerId ? "pin-marker--own" : "pin-marker--rival",
         pin.status !== "stocked" ? "pin-marker--inactive" : "",
-        pin.id === selectedPinId ? "pin-marker--selected" : ""
+        pin.id === selectedPinId ? "pin-marker--selected" : "",
+        affectedPinIds.has(pin.id) ? "pin-marker--affected" : ""
       ]
         .filter(Boolean)
         .join(" ");
@@ -113,6 +139,14 @@ export function GameMap({
         element.appendChild(incomePulse);
       }
 
+      if (affectedPinIds.has(pin.id)) {
+        const impactBadge = document.createElement("span");
+        impactBadge.className = "pin-impact-badge";
+        impactBadge.textContent = "!";
+        impactBadge.setAttribute("aria-hidden", "true");
+        element.appendChild(impactBadge);
+      }
+
       element.addEventListener("click", (event) => {
         event.stopPropagation();
         onSelectPin(pin);
@@ -129,7 +163,32 @@ export function GameMap({
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
     };
-  }, [currentPlayerId, onSelectPin, selectedPinId, visiblePins]);
+  }, [affectedPinIds, currentPlayerId, onSelectPin, selectedPinId, visiblePins]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const updateRadiusLayer = () => {
+      ensureCompetitionRadiusLayers(map);
+      const source = map.getSource(COMPETITION_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
+      source?.setData(
+        selectedPin
+          ? createRadiusFeatureCollection(selectedPin, GAME_CONFIG.competitionRadiusM)
+          : EMPTY_RADIUS_DATA
+      );
+    };
+
+    if (map.isStyleLoaded()) {
+      updateRadiusLayer();
+      return;
+    }
+
+    map.once("load", updateRadiusLayer);
+    return () => {
+      map.off("load", updateRadiusLayer);
+    };
+  }, [selectedPin]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -191,7 +250,6 @@ export function GameMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    const selectedPin = visiblePins.find((pin) => pin.id === selectedPinId);
     if (!map || !selectedPin) return;
 
     map.easeTo({
@@ -199,7 +257,7 @@ export function GameMap({
       duration: 500,
       zoom: Math.max(map.getZoom(), 14)
     });
-  }, [selectedPinId, visiblePins]);
+  }, [selectedPin]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -218,6 +276,87 @@ export function GameMap({
       {isDemoMode ? <div className="map-crosshair" aria-hidden="true" /> : null}
     </div>
   );
+}
+
+function ensureCompetitionRadiusLayers(map: Map): void {
+  if (!map.getSource(COMPETITION_RADIUS_SOURCE_ID)) {
+    map.addSource(COMPETITION_RADIUS_SOURCE_ID, {
+      type: "geojson",
+      data: EMPTY_RADIUS_DATA
+    });
+  }
+
+  if (!map.getLayer(COMPETITION_RADIUS_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: COMPETITION_RADIUS_FILL_LAYER_ID,
+      type: "fill",
+      source: COMPETITION_RADIUS_SOURCE_ID,
+      paint: {
+        "fill-color": "#2f5f9f",
+        "fill-opacity": 0.12
+      }
+    });
+  }
+
+  if (!map.getLayer(COMPETITION_RADIUS_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: COMPETITION_RADIUS_LINE_LAYER_ID,
+      type: "line",
+      source: COMPETITION_RADIUS_SOURCE_ID,
+      paint: {
+        "line-color": "#2f5f9f",
+        "line-opacity": 0.68,
+        "line-width": 2
+      }
+    });
+  }
+}
+
+function createRadiusFeatureCollection(
+  center: { lat: number; lng: number },
+  radiusM: number
+): Parameters<GeoJSONSource["setData"]>[0] {
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "Polygon",
+          coordinates: [createRadiusCoordinates(center, radiusM)]
+        }
+      }
+    ]
+  };
+}
+
+function createRadiusCoordinates(
+  center: { lat: number; lng: number },
+  radiusM: number
+): number[][] {
+  const coordinates: number[][] = [];
+  const lat = toRadians(center.lat);
+  const lng = toRadians(center.lng);
+  const angularDistance = radiusM / EARTH_RADIUS_M;
+
+  for (let step = 0; step <= 96; step += 1) {
+    const bearing = (step / 96) * 2 * Math.PI;
+    const destinationLat = Math.asin(
+      Math.sin(lat) * Math.cos(angularDistance) +
+        Math.cos(lat) * Math.sin(angularDistance) * Math.cos(bearing)
+    );
+    const destinationLng =
+      lng +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat),
+        Math.cos(angularDistance) - Math.sin(lat) * Math.sin(destinationLat)
+      );
+
+    coordinates.push([toDegrees(destinationLng), toDegrees(destinationLat)]);
+  }
+
+  return coordinates;
 }
 
 function getIncomePulseDurationMs(hourlyRate: number): number {
@@ -240,6 +379,14 @@ function hashString(value: string): number {
   }
 
   return hash;
+}
+
+function toRadians(degrees: number): number {
+  return (degrees * Math.PI) / 180;
+}
+
+function toDegrees(radians: number): number {
+  return (radians * 180) / Math.PI;
 }
 
 function hasValidCoordinate<T extends { lat?: number; lng?: number }>(
