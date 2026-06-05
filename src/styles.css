@@ -113,32 +113,30 @@ button:disabled {
 .pin-marker {
   --pin-color: var(--red);
   position: relative;
-  width: 28px;
-  height: 34px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   overflow: visible;
-  transform: translateY(0);
 }
 
 .pin-marker::before {
   position: absolute;
-  top: 0;
-  left: 3px;
-  width: 22px;
-  height: 22px;
+  inset: 3px;
   border: 3px solid #fff;
-  border-radius: 50% 50% 50% 0;
+  border-radius: 50%;
   background: var(--pin-color, var(--red));
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.25);
   content: "";
-  transform: rotate(-45deg);
 }
 
 .pin-marker::after {
   position: absolute;
-  top: 8px;
-  left: 11px;
+  top: 12px;
+  left: 12px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -156,8 +154,12 @@ button:disabled {
   opacity: 0.58;
 }
 
+.pin-marker--affected {
+  z-index: 2;
+}
+
 .pin-marker--selected {
-  transform: translateY(-5px);
+  z-index: 3;
 }
 
 .pin-marker--selected::before {
@@ -182,7 +184,7 @@ button:disabled {
 .pin-impact-badge {
   position: absolute;
   right: -7px;
-  bottom: 5px;
+  bottom: -5px;
   z-index: 3;
   display: grid;
   width: 18px;
@@ -200,7 +202,7 @@ button:disabled {
 
 .pin-income-bubble {
   position: absolute;
-  top: -8px;
+  top: -12px;
   left: 50%;
   z-index: 2;
   display: grid;
@@ -249,38 +251,35 @@ button:disabled {
 }
 
 .build-preview-marker {
+  position: relative;
   width: 34px;
-  height: 42px;
+  height: 34px;
   border: 0;
   background: transparent;
-  transform: translateY(0);
 }
 
 .build-preview-marker::before {
   position: absolute;
-  top: 0;
-  left: 4px;
-  width: 26px;
-  height: 26px;
+  inset: 2px;
   border: 3px solid #fff;
-  border-radius: 8px 8px 8px 0;
+  border-radius: 50%;
   background: var(--blue);
   box-shadow:
     0 0 0 5px rgba(47, 95, 159, 0.22),
     0 8px 18px rgba(0, 0, 0, 0.28);
   content: "";
-  transform: rotate(-45deg);
 }
 
 .build-preview-marker::after {
   position: absolute;
-  top: 9px;
-  left: 13px;
+  top: 50%;
+  left: 50%;
   color: #fff;
   content: "+";
   font-size: 18px;
   font-weight: 900;
   line-height: 1;
+  transform: translate(-50%, -54%);
 }
 
 .build-preview-marker--temporary::before {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
 import { EDINBURGH_CENTER, GAME_CONFIG } from "../lib/constants";
-import { distanceMeters } from "../lib/geo";
+import { competitionPressure, distanceMeters } from "../lib/geo";
 import type { GamePin, LocationReading } from "../types";
 
 interface GameMapProps {
@@ -66,7 +66,9 @@ export function GameMap({
     for (const pin of visiblePins) {
       if (pin.id === selectedPin.id || pin.status !== "stocked") continue;
       const distance = distanceMeters(selectedPin, pin);
-      if (distance < GAME_CONFIG.competitionRadiusM) ids.add(pin.id);
+      if (competitionPressure(distance, GAME_CONFIG.competitionRadiusM) > 0) {
+        ids.add(pin.id);
+      }
     }
 
     return ids;
@@ -152,7 +154,7 @@ export function GameMap({
         onSelectPin(pin);
       });
 
-      const marker = new maplibregl.Marker({ element, anchor: "bottom" })
+      const marker = new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat([pin.lng, pin.lat])
         .addTo(map);
 
@@ -236,7 +238,7 @@ export function GameMap({
       element.title = buildPreview.name;
       buildPreviewMarkerRef.current = new maplibregl.Marker({
         element,
-        anchor: "bottom"
+        anchor: "center"
       })
         .setLngLat([buildPreview.location.lng, buildPreview.location.lat])
         .addTo(map);
