@@ -32,7 +32,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           <div className="brand-lockup">
             <span className="brand-mark">!</span>
             <div>
-              <h1>Coffee Pins</h1>
+              <h1>mudslingers</h1>
               <p>Something interrupted the app.</p>
             </div>
           </div>

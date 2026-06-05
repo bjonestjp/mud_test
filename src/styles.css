@@ -194,6 +194,10 @@ button:disabled {
   border-radius: 8px;
 }
 
+.brand-lockup > div {
+  min-width: 0;
+}
+
 .brand-lockup--compact {
   padding: 10px 12px;
   pointer-events: auto;
@@ -201,16 +205,22 @@ button:disabled {
 
 .brand-lockup h1 {
   margin: 0;
+  overflow: hidden;
   color: var(--ink);
   font-size: 18px;
   line-height: 1.1;
   letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand-lockup p {
   margin: 2px 0 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand-mark {
@@ -230,27 +240,6 @@ button:disabled {
   padding: 8px;
   border-radius: 8px;
   pointer-events: auto;
-}
-
-.balance-pill {
-  display: flex;
-  min-width: 94px;
-  align-items: baseline;
-  justify-content: center;
-  gap: 5px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.balance-pill span {
-  font-weight: 800;
-}
-
-.balance-pill small {
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .icon-button,
@@ -575,7 +564,7 @@ input:focus {
   }
 
   .brand-lockup--compact {
-    max-width: 166px;
+    max-width: min(230px, calc(100vw - 178px));
   }
 
   .brand-lockup h1 {
@@ -596,18 +585,9 @@ input:focus {
     height: 34px;
   }
 
-  .balance-pill {
-    min-width: 68px;
-    padding: 7px 8px;
-  }
-
   .top-actions {
-    max-width: calc(100vw - 126px);
+    max-width: calc(100vw - 190px);
     overflow: hidden;
-  }
-
-  .top-actions .balance-pill {
-    display: none;
   }
 
   .bottom-actions {

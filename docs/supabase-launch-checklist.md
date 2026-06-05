@@ -48,7 +48,7 @@ With custom SMTP disabled, Supabase's built-in email sender is heavily limited. 
 ## 6. Smoke Test Live Mode
 
 1. Open the app.
-2. Confirm the header says `Live`, not `Demo`.
+2. Confirm the header shows your player name and token total.
 3. Create an account with an email and password.
 4. Sign out and sign back in.
 5. Confirm your profile row was created with `300` points.

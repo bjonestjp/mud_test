@@ -164,7 +164,7 @@ export default function App() {
               <Coffee size={26} />
             </span>
             <div>
-              <h1>Coffee Pins</h1>
+              <h1>mudslingers</h1>
               <p>Sign in or create an account.</p>
             </div>
           </div>
@@ -230,15 +230,11 @@ export default function App() {
             <Coffee size={22} />
           </span>
           <div>
-            <h1>Coffee Pins</h1>
-            <p>{game.isDemoMode ? "Demo" : "Live"}</p>
+            <h1>mudslingers</h1>
+            <p>{formatPlayerSummary(game)}</p>
           </div>
         </div>
         <div className="top-actions">
-          <div className="balance-pill">
-            <span>{pointsToTokens(game.profile?.pointsBalance ?? 0)}</span>
-            <small>tokens</small>
-          </div>
           <button className="icon-button" type="button" onClick={locatePlayer} disabled={isBusy} title={game.isDemoMode ? "Set simulated location" : "Center on my location"}>
             <LocateFixed size={18} />
           </button>
@@ -449,6 +445,12 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
     case "leaderboard":
       return "Leaderboard";
   }
+}
+
+function formatPlayerSummary(game: GameState): string {
+  const name = game.profile?.displayName ?? (game.isDemoMode ? "Demo player" : "Player");
+  const tokens = pointsToTokens(game.profile?.pointsBalance ?? 0);
+  return `${name} · ${tokens} tokens`;
 }
 
 function PinDetail({

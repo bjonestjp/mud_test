@@ -1,4 +1,4 @@
-# Coffee Pins
+# mudslingers
 
 An async browser game where friends build fictional coffee shops by travelling to real places and dropping pins.
 

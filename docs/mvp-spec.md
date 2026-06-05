@@ -1,4 +1,4 @@
-# Coffee Pin Game MVP Spec
+# mudslingers MVP Spec
 
 ## Product Shape
 
