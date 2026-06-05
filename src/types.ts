@@ -8,12 +8,14 @@ export interface PlayerProfile {
   id: string;
   displayName: string;
   pointsBalance: number;
+  playerColor: string;
 }
 
 export interface GamePin {
   id: string;
   ownerId: string;
   ownerName: string;
+  ownerColor: string;
   name: string;
   pinType: PinType;
   lat: number;
@@ -33,6 +35,7 @@ export interface GamePin {
 export interface LeaderboardRow {
   playerId: string;
   displayName: string;
+  playerColor: string;
   pointsBalance: number;
   activePins: number;
   lifetimeIncome: number;
@@ -69,8 +72,7 @@ export interface RestockPinInput {
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
-  signIn(email: string, password: string): Promise<GameState>;
-  signUp(email: string, password: string): Promise<GameState>;
+  signIn(username: string, password: string): Promise<GameState>;
   signOut(): Promise<GameState>;
   refresh(): Promise<GameState>;
   placePin(input: PlacePinInput): Promise<GameState>;

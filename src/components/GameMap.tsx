@@ -97,6 +97,7 @@ export function GameMap({
         .filter(Boolean)
         .join(" ");
       element.title = pin.name;
+      element.style.setProperty("--pin-color", pin.ownerColor);
       element.setAttribute("aria-label", pin.name);
       element.addEventListener("click", (event) => {
         event.stopPropagation();

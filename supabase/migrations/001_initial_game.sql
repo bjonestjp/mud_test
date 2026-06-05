@@ -7,6 +7,7 @@ create extension if not exists postgis with schema extensions;
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
+  player_color text not null default '#21745c' check (player_color ~ '^#[0-9A-Fa-f]{6}$'),
   points_balance numeric(12, 2) not null default 300,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -134,6 +135,35 @@ create trigger pins_set_geog
 before insert or update of lat, lng on public.pins
 for each row execute function public.set_pin_geog();
 
+create or replace function public.player_color_for_text(p_text text)
+returns text
+language sql
+immutable
+as $$
+  select (array[
+    '#21745c',
+    '#2f5f9f',
+    '#ba3c3a',
+    '#8a5b20',
+    '#7a4ab8',
+    '#d36b2c',
+    '#0f766e',
+    '#be185d',
+    '#4338ca',
+    '#0891b2',
+    '#4d7c0f',
+    '#b45309',
+    '#e11d48',
+    '#475569',
+    '#6d28d9',
+    '#047857',
+    '#0369a1',
+    '#db2777',
+    '#6b8e23',
+    '#9f1239'
+  ])[1 + ((abs(hashtext(coalesce(nullif(p_text, ''), 'player'))::bigint) % 20)::integer)];
+$$;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -142,6 +172,7 @@ set search_path = public, extensions
 as $$
 declare
   v_display_name text;
+  v_player_color text;
 begin
   v_display_name = coalesce(
     nullif(new.raw_user_meta_data ->> 'display_name', ''),
@@ -149,8 +180,17 @@ begin
     'Player'
   );
 
-  insert into public.profiles (id, display_name, points_balance)
-  values (new.id, v_display_name, 300)
+  v_player_color = coalesce(
+    nullif(new.raw_user_meta_data ->> 'player_color', ''),
+    public.player_color_for_text(new.id::text)
+  );
+
+  if v_player_color !~ '^#[0-9A-Fa-f]{6}$' then
+    v_player_color = public.player_color_for_text(new.id::text);
+  end if;
+
+  insert into public.profiles (id, display_name, player_color, points_balance)
+  values (new.id, v_display_name, v_player_color, 300)
   on conflict (id) do nothing;
 
   insert into public.currency_ledger (player_id, amount_points, balance_after, reason)
@@ -776,6 +816,7 @@ returns table (
   id uuid,
   owner_id uuid,
   owner_name text,
+  owner_color text,
   name text,
   pin_type text,
   lat double precision,
@@ -803,6 +844,7 @@ begin
     pin.id,
     pin.owner_id,
     profile.display_name as owner_name,
+    profile.player_color as owner_color,
     pin.name,
     pin.pin_type,
     pin.lat,
@@ -848,6 +890,7 @@ create or replace function public.get_leaderboard()
 returns table (
   player_id uuid,
   display_name text,
+  player_color text,
   points_balance numeric,
   active_pins bigint,
   lifetime_income numeric
@@ -864,6 +907,7 @@ begin
   select
     profile.id as player_id,
     profile.display_name,
+    profile.player_color,
     profile.points_balance,
     coalesce(pin_stats.active_pins, 0) as active_pins,
     coalesce(ledger_stats.lifetime_income, 0) as lifetime_income

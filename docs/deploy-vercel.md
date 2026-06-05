@@ -42,7 +42,7 @@ https://your-project.vercel.app
 ## 5. Test
 
 1. Open the Vercel URL on your phone.
-2. Sign in with an already confirmed Supabase user.
+2. Sign in with a manually created player username and password.
 3. Use the locate button.
 4. Place a pin.
 5. Check that the pin appears on another signed-in device.

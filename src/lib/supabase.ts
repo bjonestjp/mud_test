@@ -11,6 +11,30 @@ import type {
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const MANUAL_ACCOUNT_DOMAIN = "players.mudslingers.test";
+const PLAYER_COLORS = [
+  "#21745c",
+  "#2f5f9f",
+  "#ba3c3a",
+  "#8a5b20",
+  "#7a4ab8",
+  "#d36b2c",
+  "#0f766e",
+  "#be185d",
+  "#4338ca",
+  "#0891b2",
+  "#4d7c0f",
+  "#b45309",
+  "#e11d48",
+  "#475569",
+  "#6d28d9",
+  "#047857",
+  "#0369a1",
+  "#db2777",
+  "#6b8e23",
+  "#9f1239"
+];
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
 export function hasSupabaseConfig(): boolean {
   return Boolean(supabaseUrl && supabaseAnonKey);
@@ -33,32 +57,13 @@ class SupabaseGameAdapter implements GameAdapter {
     return this.refresh();
   }
 
-  async signIn(email: string, password: string): Promise<GameState> {
+  async signIn(username: string, password: string): Promise<GameState> {
     const { error } = await this.supabase.auth.signInWithPassword({
-      email,
+      email: toAuthEmail(username),
       password
     });
 
     if (error) throw error;
-    return this.refresh();
-  }
-
-  async signUp(email: string, password: string): Promise<GameState> {
-    const { data, error } = await this.supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          display_name: email.split("@")[0] || "Player"
-        }
-      }
-    });
-
-    if (error) throw error;
-    if (!data.session) {
-      throw new Error("Account created, but Supabase still requires email confirmation. Confirm this user in Supabase, then sign in.");
-    }
-
     return this.refresh();
   }
 
@@ -123,6 +128,14 @@ class SupabaseGameAdapter implements GameAdapter {
   }
 
   private async fetchProfile(userId: string): Promise<PlayerProfile | null> {
+    const withColor = await this.supabase
+      .from("profiles")
+      .select("id, display_name, points_balance, player_color")
+      .eq("id", userId)
+      .single();
+
+    if (!withColor.error) return mapProfileRow(withColor.data, userId);
+
     const { data, error } = await this.supabase
       .from("profiles")
       .select("id, display_name, points_balance")
@@ -130,11 +143,7 @@ class SupabaseGameAdapter implements GameAdapter {
       .single();
 
     if (error) throw error;
-    return {
-      id: data.id,
-      displayName: data.display_name,
-      pointsBalance: Number(data.points_balance)
-    };
+    return mapProfileRow(data, userId);
   }
 
   private async fetchPins(): Promise<GamePin[]> {
@@ -149,6 +158,7 @@ class SupabaseGameAdapter implements GameAdapter {
     return (data ?? []).map((row: Record<string, unknown>) => ({
       playerId: String(row.player_id),
       displayName: String(row.display_name),
+      playerColor: safeColor(row.player_color, String(row.player_id)),
       pointsBalance: Number(row.points_balance),
       activePins: Number(row.active_pins),
       lifetimeIncome: Number(row.lifetime_income)
@@ -161,6 +171,7 @@ function mapPinRow(row: Record<string, unknown>): GamePin {
     id: String(row.id),
     ownerId: String(row.owner_id),
     ownerName: String(row.owner_name),
+    ownerColor: safeColor(row.owner_color, String(row.owner_id)),
     name: String(row.name),
     pinType: row.pin_type as GamePin["pinType"],
     lat: Number(row.lat),
@@ -180,4 +191,42 @@ function mapPinRow(row: Record<string, unknown>): GamePin {
 
 function isVisiblePin(pin: GamePin): boolean {
   return !(pin.pinType === "temporary" && pin.status === "expired");
+}
+
+function mapProfileRow(row: Record<string, unknown>, fallbackKey: string): PlayerProfile {
+  return {
+    id: String(row.id),
+    displayName: String(row.display_name),
+    pointsBalance: Number(row.points_balance),
+    playerColor: safeColor(row.player_color, fallbackKey)
+  };
+}
+
+function toAuthEmail(usernameOrEmail: string): string {
+  const trimmed = usernameOrEmail.trim().toLowerCase();
+  if (!trimmed) throw new Error("Enter a username.");
+  if (trimmed.includes("@")) return trimmed;
+
+  const username = trimmed
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (!username) throw new Error("Enter a username using letters or numbers.");
+  return `${username}@${MANUAL_ACCOUNT_DOMAIN}`;
+}
+
+function safeColor(value: unknown, fallbackKey: string): string {
+  if (typeof value === "string" && HEX_COLOR_PATTERN.test(value)) return value;
+  return colorFromId(fallbackKey);
+}
+
+function colorFromId(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return PLAYER_COLORS[hash % PLAYER_COLORS.length];
 }

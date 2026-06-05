@@ -23,19 +23,22 @@ Without Supabase environment variables, the app runs in demo mode with local sam
 1. Create a Supabase project.
 2. Enable email/password auth. For the friend-group MVP, turn off email confirmation so accounts do not depend on Supabase auth emails.
 3. Run the SQL migration in [supabase/migrations/001_initial_game.sql](supabase/migrations/001_initial_game.sql).
-4. Copy `.env.example` to `.env.local`.
-5. Fill in:
+4. For existing projects, also run [supabase/migrations/002_manual_players_and_colors.sql](supabase/migrations/002_manual_players_and_colors.sql).
+5. Copy `.env.example` to `.env.local`.
+6. Fill in:
 
 ```text
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 ```
 
-6. Restart the dev server.
+7. Restart the dev server.
 
 For the fuller handoff sequence, use [docs/supabase-launch-checklist.md](docs/supabase-launch-checklist.md).
 
 For a free HTTPS playtest deployment, use [docs/deploy-vercel.md](docs/deploy-vercel.md).
+
+For manually distributed usernames, passwords, and player colours, use [docs/manual-player-accounts.md](docs/manual-player-accounts.md).
 
 The frontend calls these Supabase RPCs:
 
@@ -47,7 +50,7 @@ The frontend calls these Supabase RPCs:
 
 ## Current MVP Scope
 
-- Real accounts through Supabase Auth
+- Manually distributed username/password accounts through Supabase Auth
 - Full-screen MapLibre map
 - Standard coffee shop pins
 - Pop-up kiosks that cost 1 token and disappear after 3 days
@@ -55,7 +58,7 @@ The frontend calls these Supabase RPCs:
 - 3 starting tokens, 2-token standard pin cost
 - 50m restock radius
 - 300m competition radius
-- Own pins and rival pins both compete
+- Player-coloured pins, with own pins and rival pins both competing
 - Automatic passive income settlement
 - Immediate pin visibility
 - Demo-mode fallback when Supabase is not configured

@@ -17,6 +17,35 @@ import type {
 
 const STORAGE_KEY = "coffee-pin-demo-state-v1";
 const DEMO_PLAYER_ID = "player-you";
+const DEMO_PLAYER_COLORS: Record<string, string> = {
+  "player-you": "#21745c",
+  "player-anya": "#ba3c3a",
+  "player-nico": "#2f5f9f",
+  "player-sam": "#8a5b20"
+};
+const FALLBACK_PLAYER_COLORS = [
+  "#21745c",
+  "#2f5f9f",
+  "#ba3c3a",
+  "#8a5b20",
+  "#7a4ab8",
+  "#d36b2c",
+  "#0f766e",
+  "#be185d",
+  "#4338ca",
+  "#0891b2",
+  "#4d7c0f",
+  "#b45309",
+  "#e11d48",
+  "#475569",
+  "#6d28d9",
+  "#047857",
+  "#0369a1",
+  "#db2777",
+  "#6b8e23",
+  "#9f1239"
+];
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
 interface DemoStore {
   profile: PlayerProfile;
@@ -37,11 +66,7 @@ export class DemoAdapter implements GameAdapter {
     return this.refresh();
   }
 
-  async signIn(): Promise<GameState> {
-    return this.refresh();
-  }
-
-  async signUp(): Promise<GameState> {
+  async signIn(_username = "", _password = ""): Promise<GameState> {
     return this.refresh();
   }
 
@@ -71,6 +96,7 @@ export class DemoAdapter implements GameAdapter {
       id: crypto.randomUUID(),
       ownerId: DEMO_PLAYER_ID,
       ownerName: "You",
+      ownerColor: this.store.profile.playerColor,
       name: input.name.trim() || "New Shop",
       pinType: input.pinType,
       lat: input.lat,
@@ -217,6 +243,7 @@ function createInitialStore(): DemoStore {
     profile: {
       id: DEMO_PLAYER_ID,
       displayName: "You",
+      playerColor: demoColorForPlayer(DEMO_PLAYER_ID),
       pointsBalance: GAME_CONFIG.startingPoints
     },
     pins,
@@ -241,6 +268,7 @@ function normalizeStore(candidate: Partial<DemoStore>): DemoStore {
     profile: {
       id: profile.id,
       displayName: profile.displayName || "You",
+      playerColor: normalizeColor(profile.playerColor, profile.id),
       pointsBalance: Number.isFinite(profile.pointsBalance)
         ? Number(profile.pointsBalance)
         : GAME_CONFIG.startingPoints
@@ -270,11 +298,13 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
   const busyScore = Number.isFinite(pin?.busyScore)
     ? Math.max(0, Math.min(100, Number(pin?.busyScore)))
     : safeFallback.busyScore;
+  const ownerId = pin?.ownerId || safeFallback.ownerId;
 
   return {
     id: pin?.id || safeFallback.id,
-    ownerId: pin?.ownerId || safeFallback.ownerId,
+    ownerId,
     ownerName: pin?.ownerName || safeFallback.ownerName,
+    ownerColor: normalizeColor(pin?.ownerColor, ownerId),
     name: pin?.name || safeFallback.name,
     pinType: pin?.pinType === "temporary" ? "temporary" : "standard",
     lat: Number.isFinite(pin?.lat) ? Number(pin?.lat) : safeFallback.lat,
@@ -310,6 +340,7 @@ function createDemoPin(
     id,
     ownerId,
     ownerName,
+    ownerColor: demoColorForPlayer(ownerId),
     name,
     pinType: "standard",
     lat,
@@ -348,11 +379,12 @@ function refreshPinStatus(pin: GamePin, now: Date): void {
 
 function buildLeaderboard(store: DemoStore): LeaderboardRow[] {
   const players = new Map<string, LeaderboardRow>();
-  const ensure = (playerId: string, displayName: string) => {
+  const ensure = (playerId: string, displayName: string, playerColor: string) => {
     if (!players.has(playerId)) {
       players.set(playerId, {
         playerId,
         displayName,
+        playerColor,
         pointsBalance: playerId === DEMO_PLAYER_ID ? store.profile.pointsBalance : 160 + players.size * 47,
         activePins: 0,
         lifetimeIncome: playerId === DEMO_PLAYER_ID ? Math.max(0, store.profile.pointsBalance - GAME_CONFIG.startingPoints) : 90 + players.size * 26
@@ -361,9 +393,9 @@ function buildLeaderboard(store: DemoStore): LeaderboardRow[] {
     return players.get(playerId)!;
   };
 
-  ensure(store.profile.id, store.profile.displayName);
+  ensure(store.profile.id, store.profile.displayName, store.profile.playerColor);
   for (const pin of store.pins) {
-    const row = ensure(pin.ownerId, pin.ownerName);
+    const row = ensure(pin.ownerId, pin.ownerName, pin.ownerColor);
     if (pin.status === "stocked") row.activePins += 1;
   }
 
@@ -393,4 +425,20 @@ function addHours(date: Date, hours: number): Date {
 
 function getPinCost(pinType: PlacePinInput["pinType"]): number {
   return pinType === "temporary" ? GAME_CONFIG.temporaryPinCost : GAME_CONFIG.standardPinCost;
+}
+
+function normalizeColor(color: unknown, fallbackKey: string): string {
+  if (typeof color === "string" && HEX_COLOR_PATTERN.test(color)) return color;
+  return demoColorForPlayer(fallbackKey);
+}
+
+function demoColorForPlayer(playerId: string): string {
+  if (DEMO_PLAYER_COLORS[playerId]) return DEMO_PLAYER_COLORS[playerId];
+
+  let hash = 0;
+  for (let index = 0; index < playerId.length; index += 1) {
+    hash = (hash * 31 + playerId.charCodeAt(index)) >>> 0;
+  }
+
+  return FALLBACK_PLAYER_COLORS[hash % FALLBACK_PLAYER_COLORS.length];
 }

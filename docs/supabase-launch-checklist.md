@@ -19,6 +19,8 @@ Use this when moving the MVP from demo mode to a real friend-group game.
 
 Run [supabase/migrations/001_initial_game.sql](</Users/bradjones/Documents/current work/june26/rite/supabase/migrations/001_initial_game.sql>) in the Supabase SQL editor or through the Supabase CLI.
 
+If this project already had the first migration applied, run [supabase/migrations/002_manual_players_and_colors.sql](</Users/bradjones/Documents/current work/june26/rite/supabase/migrations/002_manual_players_and_colors.sql>) after it.
+
 The migration creates:
 
 - PostGIS and pgcrypto extensions
@@ -49,11 +51,11 @@ With custom SMTP disabled, Supabase's built-in email sender is heavily limited. 
 
 1. Open the app.
 2. Confirm the header shows your player name and token total.
-3. Create an account with an email and password.
-4. Sign out and sign back in.
-5. Confirm your profile row was created with `300` points.
+3. Create a manual player in Supabase using [docs/manual-player-accounts.md](</Users/bradjones/Documents/current work/june26/rite/docs/manual-player-accounts.md>).
+4. Sign in with that username and password.
+5. Confirm your profile row has `300` points and a hex `player_color`.
 6. Drop a pin from a phone browser.
-7. Confirm the pin appears for all signed-in players.
+7. Confirm the pin appears for all signed-in players in that player's colour.
 8. Restock the pin while within 50m.
 
 ## 7. Invite Friends
@@ -61,7 +63,7 @@ With custom SMTP disabled, Supabase's built-in email sender is heavily limited. 
 For the first playtest, keep access social rather than technical:
 
 - Share the app link only with the test group.
-- Ask each player to sign in with their own email.
+- Give each player their username and password.
 - Ask players to report weird balances with screenshots.
 
 The `currency_ledger` table should make disputes debuggable.

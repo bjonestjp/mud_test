@@ -10,7 +10,6 @@ import {
   RefreshCcw,
   Timer,
   Trophy,
-  UserPlus,
   Users,
   X
 } from "lucide-react";
@@ -75,7 +74,7 @@ export default function App() {
   const [shopName, setShopName] = useState("");
   const [selectedBuildType, setSelectedBuildType] = useState<PinType | null>(null);
   const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -135,20 +134,7 @@ export default function App() {
 
   const signIn = async (event: React.FormEvent) => {
     event.preventDefault();
-    await run(() => adapter.signIn(email.trim(), password), "Signed in");
-  };
-
-  const signUp = () => {
-    const normalizedEmail = email.trim();
-    if (!normalizedEmail || password.length < 6) {
-      setNotice({
-        message: "Enter an email and a password of at least 6 characters.",
-        tone: "error"
-      });
-      return;
-    }
-
-    void run(() => adapter.signUp(normalizedEmail, password), "Account created");
+    await run(() => adapter.signIn(username.trim(), password), "Signed in");
   };
 
   const signOut = () => run(() => adapter.signOut(), game.isDemoMode ? "Demo reset" : "Signed out");
@@ -241,16 +227,17 @@ export default function App() {
             </span>
             <div>
               <h1>mudslingers</h1>
-              <p>Sign in or create an account.</p>
+              <p>Player sign in.</p>
             </div>
           </div>
           <label className="field">
-            <span>Email</span>
+            <span>Username</span>
             <input
-              value={email}
-              type="email"
-              autoComplete="email"
-              onChange={(event) => setEmail(event.target.value)}
+              value={username}
+              type="text"
+              autoCapitalize="none"
+              autoComplete="username"
+              onChange={(event) => setUsername(event.target.value)}
               required
             />
           </label>
@@ -268,15 +255,6 @@ export default function App() {
           <button className="primary-action" type="submit" disabled={isBusy}>
             <LogIn size={18} />
             Sign In
-          </button>
-          <button
-            className="secondary-action"
-            type="button"
-            onClick={signUp}
-            disabled={isBusy}
-          >
-            <UserPlus size={18} />
-            Create Account
           </button>
           {notice ? <p className="notice">{notice.message}</p> : null}
         </form>
@@ -561,7 +539,10 @@ function YourShopsPanel({
               type="button"
               onClick={() => onSelectPin(pin.id)}
             >
-              <span>{pin.name}</span>
+              <span className="list-row__label">
+                <ColorDot color={pin.ownerColor} />
+                {pin.name}
+              </span>
               <strong>{formatRate(pin.currentHourlyRate)}/h</strong>
             </button>
             {isSelected ? (
@@ -588,7 +569,10 @@ function LeaderboardPanel({
     <div className="stack-list">
       {leaderboard.map((row, index) => (
         <div className="list-row list-row--static" key={row.playerId}>
-          <span>{index + 1}. {row.displayName}</span>
+          <span className="list-row__label">
+            <ColorDot color={row.playerColor} />
+            {index + 1}. {row.displayName}
+          </span>
           <strong>{pointsToTokens(row.pointsBalance)}</strong>
         </div>
       ))}
@@ -632,7 +616,10 @@ function PinDetail({
     <div className="detail-grid">
       <div className="metric-card">
         <span>Owner</span>
-        <strong>{pin.ownerName}</strong>
+        <strong className="metric-card__value">
+          <ColorDot color={pin.ownerColor} />
+          {pin.ownerName}
+        </strong>
       </div>
       <div className="metric-card">
         <span>Busy</span>
@@ -778,4 +765,14 @@ function formatStatus(status: GamePin["status"]): string {
 
 function formatRate(value: number | null | undefined): string {
   return Number.isFinite(value) ? Number(value).toFixed(2) : "0.00";
+}
+
+function ColorDot({ color }: { color: string }) {
+  return (
+    <i
+      className="color-dot"
+      style={{ "--dot-color": color } as Record<string, string>}
+      aria-hidden="true"
+    />
+  );
 }

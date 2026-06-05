@@ -111,6 +111,7 @@ button:disabled {
 }
 
 .pin-marker {
+  --pin-color: var(--red);
   width: 28px;
   height: 34px;
   border: 0;
@@ -126,7 +127,7 @@ button:disabled {
   height: 22px;
   border: 3px solid #fff;
   border-radius: 50% 50% 50% 0;
-  background: var(--red);
+  background: var(--pin-color, var(--red));
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.25);
   content: "";
   transform: rotate(-45deg);
@@ -144,11 +145,13 @@ button:disabled {
 }
 
 .pin-marker--own::before {
-  background: var(--green);
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.8),
+    0 5px 16px rgba(0, 0, 0, 0.25);
 }
 
-.pin-marker--inactive::before {
-  background: #737d79;
+.pin-marker--inactive {
+  opacity: 0.58;
 }
 
 .pin-marker--selected {
@@ -594,6 +597,12 @@ input:focus {
   white-space: nowrap;
 }
 
+.metric-card strong.metric-card__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .status-strip {
   grid-column: 1 / -1;
   min-height: 42px;
@@ -629,9 +638,26 @@ input:focus {
   white-space: nowrap;
 }
 
+.list-row__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .list-row strong {
   flex-shrink: 0;
   color: var(--green-dark);
+}
+
+.color-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--dot-color, var(--green));
+  box-shadow: 0 0 0 1px rgba(23, 33, 30, 0.22);
 }
 
 .list-row--static {
