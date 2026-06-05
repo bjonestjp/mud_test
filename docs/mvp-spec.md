@@ -38,8 +38,10 @@ These should live in a database table or config module so they are easy to tune.
 | Starting balance | 300 points, shown as 3 tokens |
 | Standard pin cost | 200 points, shown as 2 tokens |
 | Standard restock cost | 25 points, shown as .25 tokens |
+| Radius upgrade cost | 300 points, shown as 3 tokens |
 | Restock radius | 50 meters |
-| Competition radius | 300 meters |
+| Competition radius | 150 meters base, 300 meters after one radius upgrade |
+| Radius upgrade limit | 1 per pin |
 | Standard pin restock window | 48 hours |
 | Pin visibility | Immediate |
 | Own pins compete | Yes |
@@ -140,6 +142,8 @@ competition_multiplier = 1 / (1 + total_pressure)
 hourly_rate_points = round(base_hourly_points * competition_multiplier, 2)
 ```
 
+`competition_radius_m` is the radius of the pin applying pressure. Upgrading a shop lets that shop pressure more nearby shops; it does not make the upgraded shop easier to pressure.
+
 Only active, stocked pins compete. Pins that need restocking do not earn and do not compete. Pop-up kiosks compete only until they expire.
 
 This produces intuitive behavior:
@@ -174,6 +178,7 @@ Events that change income:
 
 - A pin is placed.
 - A pin is restocked.
+- A pin radius is upgraded.
 - A standard pin reaches `restock_due_at`.
 - A temporary pin reaches `expires_at`.
 - A pin is deleted or administratively disabled.
@@ -232,6 +237,7 @@ id uuid primary key default gen_random_uuid()
 owner_id uuid not null references profiles(id)
 name text not null
 pin_type text not null check (pin_type in ('standard', 'temporary'))
+radius_level integer not null default 0
 lat double precision not null
 lng double precision not null
 geog geography(Point, 4326) not null
@@ -342,7 +348,7 @@ Responsibilities:
 - Get or create location score.
 - Insert pin.
 - Spend pin cost in `currency_ledger`.
-- Find all active/stocked pins within 300m, including own pins.
+- Find all active/stocked pins within the maximum possible competition radius, including own pins.
 - Close affected current income periods at placement time.
 - Credit settled income for any periods closed by the event.
 - Recalculate and open new periods for affected pins.
@@ -357,7 +363,7 @@ Responsibilities:
 - Settle relevant income up to now.
 - Spend the 25-point restock cost.
 - Update `last_restocked_at = now()` and `restock_due_at = now() + interval '48 hours'`.
-- Find all active/stocked pins within 300m.
+- Find all active/stocked pins within the maximum possible competition radius.
 - Close and reopen affected periods.
 - Credit settled income for any periods closed by the event.
 - Return updated pin and balance.
@@ -408,7 +414,7 @@ Optional later anti-cheat:
 3. Build a minimal web app with sign-in, map, visible pins, and player balance.
 4. Add drop-pin flow with current location and token cost.
 5. Add income periods and settlement.
-6. Add competition recalculation within 300m.
+6. Add competition recalculation within the maximum possible competition radius.
 7. Add restock flow with 50m location verification.
 8. Add busy-score cache with a placeholder formula.
 9. Replace placeholder busy score with OSM/WorldPop scoring.
@@ -438,6 +444,7 @@ Pop-up kiosks should earn and compete until `expires_at`, then disappear from th
 Potential upgrade paths:
 
 - Longer restock window.
+- Larger competition radius.
 - Reduced competition pressure.
 - Better income multiplier.
 - One-time shield against nearby competition.

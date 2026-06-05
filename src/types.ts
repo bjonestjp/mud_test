@@ -18,6 +18,7 @@ export interface GamePin {
   ownerColor: string;
   name: string;
   pinType: PinType;
+  radiusLevel: number;
   lat: number;
   lng: number;
   busyScore: number;
@@ -69,6 +70,10 @@ export interface RestockPinInput {
   accuracy: number | null;
 }
 
+export interface UpgradeRadiusInput {
+  pinId: string;
+}
+
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
@@ -77,4 +82,5 @@ export interface GameAdapter {
   refresh(): Promise<GameState>;
   placePin(input: PlacePinInput): Promise<GameState>;
   restockPin(input: RestockPinInput): Promise<GameState>;
+  upgradePinRadius(input: UpgradeRadiusInput): Promise<GameState>;
 }

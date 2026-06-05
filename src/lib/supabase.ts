@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { GAME_CONFIG } from "./constants";
+import { competitionRadiusForLevel } from "./constants";
 import {
   baseHourlyRate,
   competitionPressure,
@@ -134,6 +134,15 @@ class SupabaseGameAdapter implements GameAdapter {
     return this.refresh();
   }
 
+  async upgradePinRadius(input: { pinId: string }): Promise<GameState> {
+    const { error } = await this.supabase.rpc("upgrade_pin_radius", {
+      p_pin_id: input.pinId
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
   private async fetchProfile(userId: string): Promise<PlayerProfile | null> {
     const withColor = await this.supabase
       .from("profiles")
@@ -187,6 +196,7 @@ class SupabaseGameAdapter implements GameAdapter {
         owner_id,
         name,
         pin_type,
+        radius_level,
         lat,
         lng,
         busy_score,
@@ -226,6 +236,7 @@ function mapPinRow(row: Record<string, unknown>): GamePin {
     ownerColor: safeColor(row.owner_color, String(row.owner_id)),
     name: String(row.name),
     pinType: row.pin_type as GamePin["pinType"],
+    radiusLevel: normalizeRadiusLevel(row.radius_level),
     lat: Number(row.lat),
     lng: Number(row.lng),
     busyScore: Number(row.busy_score),
@@ -252,6 +263,7 @@ function mapDirectPinRow(row: Record<string, unknown>): GamePin {
     ownerColor: safeColor(profile.player_color, String(row.owner_id)),
     name: String(row.name),
     pinType: row.pin_type as GamePin["pinType"],
+    radiusLevel: normalizeRadiusLevel(row.radius_level),
     lat: Number(row.lat),
     lng: Number(row.lng),
     busyScore,
@@ -299,7 +311,7 @@ function calculateFallbackPinRates(pins: GamePin[]): GamePin[] {
     const totalPressure = pins.reduce((sum, other) => {
       if (other.id === pin.id || other.status !== "stocked") return sum;
       const distance = distanceMeters(pin, other);
-      return sum + competitionPressure(distance, GAME_CONFIG.competitionRadiusM);
+      return sum + competitionPressure(distance, competitionRadiusForLevel(other.radiusLevel));
     }, 0);
 
     return {
@@ -343,6 +355,11 @@ function toAuthEmail(usernameOrEmail: string): string {
 function safeColor(value: unknown, fallbackKey: string): string {
   if (typeof value === "string" && HEX_COLOR_PATTERN.test(value)) return value;
   return colorFromId(fallbackKey);
+}
+
+function normalizeRadiusLevel(value: unknown): number {
+  const level = Math.floor(Number(value) || 0);
+  return Math.max(0, level);
 }
 
 function colorFromId(value: string): string {

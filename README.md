@@ -58,7 +58,7 @@ The frontend calls these Supabase RPCs:
 - 3 starting tokens, 2-token standard pin cost
 - 48h standard shop restock window, with restocks costing .25 token
 - 50m restock radius
-- 300m competition radius
+- 150m base competition radius, upgradeable once to 300m per shop
 - Player-coloured pins, with own pins and rival pins both competing
 - Automatic passive income settlement
 - Immediate pin visibility

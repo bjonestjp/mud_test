@@ -17,6 +17,7 @@ import { GameMap } from "./components/GameMap";
 import type { LocationFocus } from "./components/GameMap";
 import { createGameAdapter } from "./lib/gameAdapter";
 import {
+  competitionRadiusForLevel,
   EDINBURGH_CENTER,
   GAME_CONFIG,
   pointsToTokenProgress,
@@ -80,6 +81,7 @@ export default function App() {
   const [selectedBuildType, setSelectedBuildType] = useState<PinType | null>(null);
   const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
   const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
+  const [pendingRadiusUpgradePinId, setPendingRadiusUpgradePinId] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -92,6 +94,7 @@ export default function App() {
   const selectedPin = game.pins.find((pin) => pin.id === selectedPinId) ?? null;
   const selectedOwnPin = selectedPin?.ownerId === game.profile?.id ? selectedPin : null;
   const pendingRestockPin = game.pins.find((pin) => pin.id === pendingRestockPinId) ?? null;
+  const pendingRadiusUpgradePin = game.pins.find((pin) => pin.id === pendingRadiusUpgradePinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
 
@@ -235,6 +238,10 @@ export default function App() {
     setPendingRestockPinId(pinId);
   };
 
+  const requestRadiusUpgrade = (pinId: string) => {
+    setPendingRadiusUpgradePinId(pinId);
+  };
+
   const openSelectedShop = () => {
     if (!selectedOwnPin) return;
 
@@ -248,6 +255,10 @@ export default function App() {
 
   const cancelRestock = () => {
     setPendingRestockPinId(null);
+  };
+
+  const cancelRadiusUpgrade = () => {
+    setPendingRadiusUpgradePinId(null);
   };
 
   const confirmRestock = () => {
@@ -271,6 +282,17 @@ export default function App() {
       setPendingRestockPinId(null);
       return next;
     }, "Restocked");
+  };
+
+  const confirmRadiusUpgrade = () => {
+    if (!pendingRadiusUpgradePin) return;
+    const pinId = pendingRadiusUpgradePin.id;
+
+    void run(async () => {
+      const next = await adapter.upgradePinRadius({ pinId });
+      setPendingRadiusUpgradePinId(null);
+      return next;
+    }, "Radius upgraded");
   };
 
   if (!game.profile && !game.isDemoMode) {
@@ -357,7 +379,7 @@ export default function App() {
         </div>
       </header>
 
-      {selectedPin && !activePanel && !pendingBuild && !pendingRestockPin ? (
+      {selectedPin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin ? (
         <section className="map-selection-card" aria-label="Selected shop">
           {selectedOwnPin ? (
             <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
@@ -450,6 +472,7 @@ export default function App() {
                 nowMs={nowMs}
                 onSelectPin={setSelectedPinId}
                 onRequestRestock={requestRestock}
+                onRequestRadiusUpgrade={requestRadiusUpgrade}
               />
             ) : null}
 
@@ -467,6 +490,16 @@ export default function App() {
           isBusy={isBusy}
           onConfirm={confirmRestock}
           onCancel={cancelRestock}
+        />
+      ) : null}
+
+      {pendingRadiusUpgradePin ? (
+        <RadiusUpgradeConfirmPanel
+          pin={pendingRadiusUpgradePin}
+          pointsBalance={game.profile?.pointsBalance ?? 0}
+          isBusy={isBusy}
+          onConfirm={confirmRadiusUpgrade}
+          onCancel={cancelRadiusUpgrade}
         />
       ) : null}
 
@@ -601,7 +634,8 @@ function YourShopsPanel({
   isBusy,
   nowMs,
   onSelectPin,
-  onRequestRestock
+  onRequestRestock,
+  onRequestRadiusUpgrade
 }: {
   pins: GamePin[];
   selectedPin: GamePin | null;
@@ -609,6 +643,7 @@ function YourShopsPanel({
   nowMs: number;
   onSelectPin: (pinId: string) => void;
   onRequestRestock: (pinId: string) => void;
+  onRequestRadiusUpgrade: (pinId: string) => void;
 }) {
   if (pins.length === 0) {
     return <p className="muted">No shops yet.</p>;
@@ -638,6 +673,7 @@ function YourShopsPanel({
                 isOwner
                 nowMs={nowMs}
                 onRequestRestock={() => onRequestRestock(pin.id)}
+                onRequestRadiusUpgrade={() => onRequestRadiusUpgrade(pin.id)}
                 isBusy={isBusy}
               />
             ) : null}
@@ -742,14 +778,18 @@ function PinDetail({
   isOwner,
   nowMs,
   onRequestRestock,
+  onRequestRadiusUpgrade,
   isBusy
 }: {
   pin: GamePin;
   isOwner: boolean;
   nowMs: number;
   onRequestRestock: () => void;
+  onRequestRadiusUpgrade: () => void;
   isBusy: boolean;
 }) {
+  const canUpgradeRadius = isOwner && pin.radiusLevel < GAME_CONFIG.radiusUpgradeMaxLevel;
+
   return (
     <div className="detail-grid">
       <div className="metric-card">
@@ -771,11 +811,21 @@ function PinDetail({
         <span>Pressure</span>
         <strong>{formatRate(pin.competitionPressure)}</strong>
       </div>
+      <div className="metric-card">
+        <span>Reach</span>
+        <strong>{formatRadius(pin)}</strong>
+      </div>
       <RestockStatusStrip pin={pin} nowMs={nowMs} />
       {isOwner && pin.pinType === "standard" ? (
         <button className="secondary-action" type="button" onClick={onRequestRestock} disabled={isBusy}>
           <PackageCheck size={18} />
           Restock Now
+        </button>
+      ) : null}
+      {canUpgradeRadius ? (
+        <button className="upgrade-action" type="button" onClick={onRequestRadiusUpgrade} disabled={isBusy}>
+          <MapPin size={18} />
+          Upgrade Radius
         </button>
       ) : null}
     </div>
@@ -855,6 +905,67 @@ function RestockConfirmPanel({
               disabled={isBusy || !hasEnoughTokens}
             >
               <PackageCheck size={18} />
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RadiusUpgradeConfirmPanel({
+  pin,
+  pointsBalance,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  pin: GamePin;
+  pointsBalance: number;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const hasEnoughTokens = pointsBalance >= GAME_CONFIG.radiusUpgradeCost;
+  const currentRadius = competitionRadiusForLevel(pin.radiusLevel);
+  const nextRadius = competitionRadiusForLevel(pin.radiusLevel + 1);
+
+  return (
+    <section className="screen-panel screen-panel--confirm" role="dialog" aria-modal="true">
+      <div className="screen-panel__header">
+        <div className="section-title">
+          <MapPin size={20} />
+          <h2>Radius</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={onCancel} title="Close">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="screen-panel__body">
+        <div className="confirm-stack">
+          <p className="confirm-question">
+            Spend 3 tokens to double radius?
+          </p>
+          <div className="selected-build-type">
+            <span>
+              <strong>{pin.name}</strong>
+              <small>{currentRadius}m to {nextRadius}m</small>
+            </span>
+            <b>{formatCompactTokenCost(GAME_CONFIG.radiusUpgradeCost)}</b>
+          </div>
+          {!hasEnoughTokens ? <p className="muted">Not enough tokens.</p> : null}
+          <div className="build-confirm-actions">
+            <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+              Cancel
+            </button>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={onConfirm}
+              disabled={isBusy || !hasEnoughTokens}
+            >
+              <MapPin size={18} />
               Confirm
             </button>
           </div>
@@ -996,6 +1107,10 @@ function formatStatus(status: GamePin["status"]): string {
 
 function formatRate(value: number | null | undefined): string {
   return Number.isFinite(value) ? Number(value).toFixed(2) : "0.00";
+}
+
+function formatRadius(pin: GamePin): string {
+  return `${competitionRadiusForLevel(pin.radiusLevel)}m`;
 }
 
 function formatHourlyTokenRate(pointsPerHour: number | null | undefined): string {

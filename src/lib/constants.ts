@@ -7,11 +7,22 @@ export const GAME_CONFIG = {
   temporaryPinCost: 100,
   restockCost: 25,
   restockRadiusM: 50,
-  competitionRadiusM: 300,
+  competitionRadiusM: 150,
+  radiusUpgradeCost: 300,
+  radiusUpgradeMaxLevel: 1,
   standardRestockHours: 48,
   temporaryExpiryHours: 72,
   maxAcceptedAccuracyM: 100
 };
+
+export function competitionRadiusForLevel(radiusLevel: number | null | undefined): number {
+  const safeLevel = Math.max(
+    0,
+    Math.min(GAME_CONFIG.radiusUpgradeMaxLevel, Math.floor(Number(radiusLevel) || 0))
+  );
+
+  return GAME_CONFIG.competitionRadiusM * 2 ** safeLevel;
+}
 
 export function pointsToTokens(points: number): string {
   return (points / GAME_CONFIG.tokenUnit).toFixed(2).replace(/\.00$/, "");

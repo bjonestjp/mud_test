@@ -1,4 +1,4 @@
-import { GAME_CONFIG } from "./constants";
+import { competitionRadiusForLevel, GAME_CONFIG } from "./constants";
 import {
   baseHourlyRate,
   competitionPressure,
@@ -99,6 +99,7 @@ export class DemoAdapter implements GameAdapter {
       ownerColor: this.store.profile.playerColor,
       name: input.name.trim() || "New Shop",
       pinType: input.pinType,
+      radiusLevel: 0,
       lat: input.lat,
       lng: input.lng,
       busyScore: estimateDemoBusyScore(input.lat, input.lng),
@@ -120,6 +121,26 @@ export class DemoAdapter implements GameAdapter {
     pin.busyLabel = getBusyLabel(pin.busyScore);
     this.store.profile.pointsBalance -= cost;
     this.store.pins = [pin, ...this.store.pins];
+    this.recalculatePins();
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async upgradePinRadius(input: { pinId: string }): Promise<GameState> {
+    this.settleIncome();
+    const pin = this.store.pins.find((item) => item.id === input.pinId);
+
+    if (!pin) throw new Error("Pin was not found.");
+    if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("This is not your pin.");
+    if (pin.radiusLevel >= GAME_CONFIG.radiusUpgradeMaxLevel) {
+      throw new Error("This shop's radius is already fully upgraded.");
+    }
+    if (this.store.profile.pointsBalance < GAME_CONFIG.radiusUpgradeCost) {
+      throw new Error("Not enough tokens.");
+    }
+
+    this.store.profile.pointsBalance -= GAME_CONFIG.radiusUpgradeCost;
+    pin.radiusLevel += 1;
     this.recalculatePins();
     saveStore(this.store);
     return this.state();
@@ -203,7 +224,7 @@ export class DemoAdapter implements GameAdapter {
       const totalPressure = this.store.pins.reduce((sum, other) => {
         if (other.id === pin.id || other.status !== "stocked") return sum;
         const distance = distanceMeters(pin, other);
-        return sum + competitionPressure(distance, GAME_CONFIG.competitionRadiusM);
+        return sum + competitionPressure(distance, competitionRadiusForLevel(other.radiusLevel));
       }, 0);
 
       pin.competitionPressure = Number(totalPressure.toFixed(3));
@@ -311,6 +332,7 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
     ownerColor: normalizeColor(pin?.ownerColor, ownerId),
     name: pin?.name || safeFallback.name,
     pinType: pin?.pinType === "temporary" ? "temporary" : "standard",
+    radiusLevel: normalizeRadiusLevel(pin?.radiusLevel ?? safeFallback.radiusLevel),
     lat: Number.isFinite(pin?.lat) ? Number(pin?.lat) : safeFallback.lat,
     lng: Number.isFinite(pin?.lng) ? Number(pin?.lng) : safeFallback.lng,
     busyScore,
@@ -347,6 +369,7 @@ function createDemoPin(
     ownerColor: demoColorForPlayer(ownerId),
     name,
     pinType: "standard",
+    radiusLevel: 0,
     lat,
     lng,
     busyScore,
@@ -429,6 +452,13 @@ function addHours(date: Date, hours: number): Date {
 
 function getPinCost(pinType: PlacePinInput["pinType"]): number {
   return pinType === "temporary" ? GAME_CONFIG.temporaryPinCost : GAME_CONFIG.standardPinCost;
+}
+
+function normalizeRadiusLevel(value: unknown): number {
+  return Math.max(
+    0,
+    Math.min(GAME_CONFIG.radiusUpgradeMaxLevel, Math.floor(Number(value) || 0))
+  );
 }
 
 function normalizeColor(color: unknown, fallbackKey: string): string {

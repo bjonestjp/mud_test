@@ -449,7 +449,8 @@ button:disabled {
 
 .icon-button,
 .primary-action,
-.secondary-action {
+.secondary-action,
+.upgrade-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -484,6 +485,13 @@ button:disabled {
   min-height: 42px;
   color: #fff;
   background: var(--blue);
+}
+
+.upgrade-action {
+  width: 100%;
+  min-height: 42px;
+  color: #fff;
+  background: var(--green-dark);
 }
 
 .bottom-actions {
@@ -788,6 +796,11 @@ input:focus {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.detail-grid > .secondary-action,
+.detail-grid > .upgrade-action {
+  grid-column: 1 / -1;
 }
 
 .metric-card {

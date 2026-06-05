@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
-import { EDINBURGH_CENTER, GAME_CONFIG } from "../lib/constants";
+import { competitionRadiusForLevel, EDINBURGH_CENTER } from "../lib/constants";
 import { competitionPressure, distanceMeters } from "../lib/geo";
 import type { GamePin, LocationReading } from "../types";
 
@@ -79,7 +79,7 @@ export function GameMap({
     for (const pin of visiblePins) {
       if (pin.id === selectedPin.id || pin.status !== "stocked") continue;
       const distance = distanceMeters(selectedPin, pin);
-      if (competitionPressure(distance, GAME_CONFIG.competitionRadiusM) > 0) {
+      if (competitionPressure(distance, competitionRadiusForLevel(selectedPin.radiusLevel)) > 0) {
         ids.add(pin.id);
       }
     }
@@ -207,7 +207,7 @@ export function GameMap({
       const source = map.getSource(COMPETITION_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
       source?.setData(
         selectedPin
-          ? createRadiusFeatureCollection(selectedPin, GAME_CONFIG.competitionRadiusM)
+          ? createRadiusFeatureCollection(selectedPin, competitionRadiusForLevel(selectedPin.radiusLevel))
           : EMPTY_RADIUS_DATA
       );
     };
