@@ -23,7 +23,7 @@ Without Supabase environment variables, the app runs in demo mode with local sam
 1. Create a Supabase project.
 2. Enable email/password auth. For the friend-group MVP, turn off email confirmation so accounts do not depend on Supabase auth emails.
 3. Run the SQL migration in [supabase/migrations/001_initial_game.sql](supabase/migrations/001_initial_game.sql).
-4. For existing projects, also run [supabase/migrations/002_manual_players_and_colors.sql](supabase/migrations/002_manual_players_and_colors.sql).
+4. For existing projects, also run later migrations in order from [supabase/migrations](supabase/migrations).
 5. Copy `.env.example` to `.env.local`.
 6. Fill in:
 
@@ -56,6 +56,7 @@ The frontend calls these Supabase RPCs:
 - Pop-up kiosks that cost 1 token and disappear after 3 days
 - Free map browsing, with live pin placement tied to the player's current browser location
 - 3 starting tokens, 2-token standard pin cost
+- 48h standard shop restock window, with restocks costing .25 token
 - 50m restock radius
 - 300m competition radius
 - Player-coloured pins, with own pins and rival pins both competing

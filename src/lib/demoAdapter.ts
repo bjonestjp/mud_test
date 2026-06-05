@@ -110,7 +110,7 @@ export class DemoAdapter implements GameAdapter {
         ? addHours(now, GAME_CONFIG.standardRestockHours).toISOString()
         : null,
       expiresAt: input.pinType === "temporary"
-        ? addHours(now, GAME_CONFIG.standardRestockHours).toISOString()
+        ? addHours(now, GAME_CONFIG.temporaryExpiryHours).toISOString()
         : null,
       status: "stocked",
       currentHourlyRate: 0,
@@ -132,6 +132,9 @@ export class DemoAdapter implements GameAdapter {
     if (!pin) throw new Error("Pin was not found.");
     if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("This is not your pin.");
     if (pin.pinType !== "standard") throw new Error("Kiosks cannot be restocked.");
+    if (this.store.profile.pointsBalance < GAME_CONFIG.restockCost) {
+      throw new Error("Not enough tokens.");
+    }
 
     const distance = distanceMeters(
       { lat: pin.lat, lng: pin.lng },
@@ -143,6 +146,7 @@ export class DemoAdapter implements GameAdapter {
     }
 
     const now = new Date();
+    this.store.profile.pointsBalance -= GAME_CONFIG.restockCost;
     pin.lastRestockedAt = now.toISOString();
     pin.restockDueAt = addHours(now, GAME_CONFIG.standardRestockHours).toISOString();
     pin.status = "stocked";

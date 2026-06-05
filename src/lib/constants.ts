@@ -5,9 +5,11 @@ export const GAME_CONFIG = {
   startingPoints: 300,
   standardPinCost: 200,
   temporaryPinCost: 100,
+  restockCost: 25,
   restockRadiusM: 50,
   competitionRadiusM: 300,
-  standardRestockHours: 72,
+  standardRestockHours: 48,
+  temporaryExpiryHours: 72,
   maxAcceptedAccuracyM: 100
 };
 

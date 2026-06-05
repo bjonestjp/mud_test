@@ -11,7 +11,7 @@ The MVP should feel like a lightweight territory game:
 - Dropping a shop pin costs tokens, so players cannot spam the map.
 - Pins earn passive income based on how busy/populous the area is.
 - Nearby pins reduce each other's income, including pins owned by the same player.
-- Standard pins stop earning after 72 hours unless the owner physically revisits and restocks them.
+- Standard pins stop earning after 48 hours unless the owner physically revisits and restocks them.
 - Pins are visible to all players immediately.
 - Income accrues automatically, but calculations happen lazily when players open the app or perform an action.
 
@@ -37,9 +37,10 @@ These should live in a database table or config module so they are easy to tune.
 | Visible token unit | 100 internal points |
 | Starting balance | 300 points, shown as 3 tokens |
 | Standard pin cost | 200 points, shown as 2 tokens |
+| Standard restock cost | 25 points, shown as .25 tokens |
 | Restock radius | 50 meters |
 | Competition radius | 300 meters |
-| Standard pin restock window | 72 hours |
+| Standard pin restock window | 48 hours |
 | Pin visibility | Immediate |
 | Own pins compete | Yes |
 | Income accrual | Automatic, settled lazily |
@@ -74,9 +75,10 @@ Demo mode may simulate the player's current location for desktop testing. The si
 ### Restock
 
 - Player selects one of their standard pins.
+- App asks the player to confirm spending .25 token.
 - App requests current phone location.
 - Backend verifies the player is within 50m of the pin.
-- Backend updates `last_restocked_at` and `restock_due_at`, then recalculates affected nearby pins.
+- Backend spends the restock cost, updates `last_restocked_at` and `restock_due_at`, then recalculates affected nearby pins.
 
 ### Leaderboard
 
@@ -353,7 +355,8 @@ Responsibilities:
 - Verify pin belongs to the authenticated player.
 - Verify player is within 50m of the pin.
 - Settle relevant income up to now.
-- Update `last_restocked_at = now()` and `restock_due_at = now() + interval '72 hours'`.
+- Spend the 25-point restock cost.
+- Update `last_restocked_at = now()` and `restock_due_at = now() + interval '48 hours'`.
 - Find all active/stocked pins within 300m.
 - Close and reopen affected periods.
 - Credit settled income for any periods closed by the event.
@@ -456,7 +459,6 @@ Possible later modes:
 
 - Should players be allowed to place pins indoors if geolocation accuracy is poor?
 - Should a pin be allowed directly on top of another pin, or should there be a minimum spacing rule?
-- Should restocking cost anything, or just require the physical visit?
 - Should players name pins freely, or should names be generated/moderated?
 - Should inactive/restock-needed pins remain visible on the map?
 - Should a player lose the original pin purchase cost forever, or should deleting a pin refund anything?
@@ -465,7 +467,7 @@ Recommended MVP answers:
 
 - Allow poor indoor accuracy only if reported accuracy is under 100m.
 - Add a soft minimum spacing warning, but no hard block at first.
-- Restocking is free.
+- Restocking costs 25 points, shown as .25 tokens.
 - Free text names are fine for a friend group.
 - Restock-needed pins remain visible but show as inactive.
 - No refunds for deleted pins in MVP.

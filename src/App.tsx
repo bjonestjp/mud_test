@@ -79,6 +79,7 @@ export default function App() {
   const [shopName, setShopName] = useState("");
   const [selectedBuildType, setSelectedBuildType] = useState<PinType | null>(null);
   const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
+  const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -86,8 +87,10 @@ export default function App() {
   const [isBusy, setIsBusy] = useState(false);
   const previousBalanceRef = useRef<number | null>(null);
   const [balancePulseKey, setBalancePulseKey] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const selectedPin = game.pins.find((pin) => pin.id === selectedPinId) ?? null;
+  const pendingRestockPin = game.pins.find((pin) => pin.id === pendingRestockPinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
 
@@ -151,6 +154,14 @@ export default function App() {
 
     previousBalanceRef.current = currentBalance;
   }, [game.profile?.pointsBalance]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const refresh = () => run(() => adapter.refresh(), "Updated");
 
@@ -219,8 +230,17 @@ export default function App() {
     setPendingBuild(null);
   };
 
-  const restockPin = () => {
-    if (!selectedPin) return;
+  const requestRestock = (pinId: string) => {
+    setPendingRestockPinId(pinId);
+  };
+
+  const cancelRestock = () => {
+    setPendingRestockPinId(null);
+  };
+
+  const confirmRestock = () => {
+    if (!pendingRestockPin) return;
+    const pinId = pendingRestockPin.id;
 
     void run(async () => {
       const location = await getRestockLocation(game.isDemoMode, playerLocation);
@@ -230,12 +250,14 @@ export default function App() {
         lng: location.lng,
         requestId: Date.now()
       });
-      return adapter.restockPin({
-        pinId: selectedPin.id,
+      const next = await adapter.restockPin({
+        pinId,
         lat: location.lat,
         lng: location.lng,
         accuracy: location.accuracy
       });
+      setPendingRestockPinId(null);
+      return next;
     }, "Restocked");
   };
 
@@ -395,8 +417,9 @@ export default function App() {
                 pins={ownPins}
                 selectedPin={selectedPin?.ownerId === game.profile?.id ? selectedPin : null}
                 isBusy={isBusy}
+                nowMs={nowMs}
                 onSelectPin={setSelectedPinId}
-                onRestock={restockPin}
+                onRequestRestock={requestRestock}
               />
             ) : null}
 
@@ -405,6 +428,16 @@ export default function App() {
             ) : null}
           </div>
         </section>
+      ) : null}
+
+      {pendingRestockPin ? (
+        <RestockConfirmPanel
+          pin={pendingRestockPin}
+          pointsBalance={game.profile?.pointsBalance ?? 0}
+          isBusy={isBusy}
+          onConfirm={confirmRestock}
+          onCancel={cancelRestock}
+        />
       ) : null}
 
       {notice ? <div className={`toast toast--${notice.tone}`}>{notice.message}</div> : null}
@@ -536,14 +569,16 @@ function YourShopsPanel({
   pins,
   selectedPin,
   isBusy,
+  nowMs,
   onSelectPin,
-  onRestock
+  onRequestRestock
 }: {
   pins: GamePin[];
   selectedPin: GamePin | null;
   isBusy: boolean;
+  nowMs: number;
   onSelectPin: (pinId: string) => void;
-  onRestock: () => void;
+  onRequestRestock: (pinId: string) => void;
 }) {
   if (pins.length === 0) {
     return <p className="muted">No shops yet.</p>;
@@ -571,7 +606,8 @@ function YourShopsPanel({
               <PinDetail
                 pin={pin}
                 isOwner
-                onRestock={onRestock}
+                nowMs={nowMs}
+                onRequestRestock={() => onRequestRestock(pin.id)}
                 isBusy={isBusy}
               />
             ) : null}
@@ -674,12 +710,14 @@ function TokenProgressRing({
 function PinDetail({
   pin,
   isOwner,
-  onRestock,
+  nowMs,
+  onRequestRestock,
   isBusy
 }: {
   pin: GamePin;
   isOwner: boolean;
-  onRestock: () => void;
+  nowMs: number;
+  onRequestRestock: () => void;
   isBusy: boolean;
 }) {
   return (
@@ -703,17 +741,96 @@ function PinDetail({
         <span>Pressure</span>
         <strong>{formatRate(pin.competitionPressure)}</strong>
       </div>
-      <div className="status-strip">
-        <Timer size={16} />
-        <span>{formatPinTiming(pin)}</span>
-      </div>
+      <RestockStatusStrip pin={pin} nowMs={nowMs} />
       {isOwner && pin.pinType === "standard" ? (
-        <button className="secondary-action" type="button" onClick={onRestock} disabled={isBusy}>
+        <button className="secondary-action" type="button" onClick={onRequestRestock} disabled={isBusy}>
           <PackageCheck size={18} />
-          Restock
+          Restock Now
         </button>
       ) : null}
     </div>
+  );
+}
+
+function RestockStatusStrip({
+  pin,
+  nowMs
+}: {
+  pin: GamePin;
+  nowMs: number;
+}) {
+  const progress = getRestockProgress(pin, nowMs);
+  const className = pin.pinType === "standard"
+    ? "status-strip status-strip--restock"
+    : "status-strip";
+
+  return (
+    <div
+      className={className}
+      style={{ "--restock-progress": `${progress}` } as Record<string, string>}
+    >
+      <Timer size={16} />
+      <span>{formatPinTiming(pin, nowMs)}</span>
+    </div>
+  );
+}
+
+function RestockConfirmPanel({
+  pin,
+  pointsBalance,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  pin: GamePin;
+  pointsBalance: number;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const hasEnoughTokens = pointsBalance >= GAME_CONFIG.restockCost;
+
+  return (
+    <section className="screen-panel screen-panel--confirm" role="dialog" aria-modal="true">
+      <div className="screen-panel__header">
+        <div className="section-title">
+          <PackageCheck size={20} />
+          <h2>Restock</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={onCancel} title="Close">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="screen-panel__body">
+        <div className="confirm-stack">
+          <p className="confirm-question">
+            Spend {formatCompactTokenCost(GAME_CONFIG.restockCost)} to restock?
+          </p>
+          <div className="selected-build-type">
+            <span>
+              <strong>{pin.name}</strong>
+              <small>{pin.busyLabel} · {formatHourlyTokenRate(pin.currentHourlyRate)}</small>
+            </span>
+            <b>{formatCompactTokenCost(GAME_CONFIG.restockCost)}</b>
+          </div>
+          {!hasEnoughTokens ? <p className="muted">Not enough tokens.</p> : null}
+          <div className="build-confirm-actions">
+            <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+              Cancel
+            </button>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={onConfirm}
+              disabled={isBusy || !hasEnoughTokens}
+            >
+              <PackageCheck size={18} />
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -796,28 +913,42 @@ function assertUsableAccuracy(location: LocationReading): void {
   }
 }
 
-function formatRestock(value: string | null): string {
+function formatRestock(value: string | null, nowMs: number): string {
   if (!value) return "No deadline";
-  const diffMs = new Date(value).getTime() - Date.now();
+  const diffMs = new Date(value).getTime() - nowMs;
   if (diffMs <= 0) return "Needs restock";
   const hours = Math.ceil(diffMs / 3_600_000);
   if (hours > 24) return `${Math.ceil(hours / 24)}d stocked`;
   return `${hours}h stocked`;
 }
 
-function formatExpiry(value: string | null): string {
+function formatExpiry(value: string | null, nowMs: number): string {
   if (!value) return "No expiry";
-  const diffMs = new Date(value).getTime() - Date.now();
+  const diffMs = new Date(value).getTime() - nowMs;
   if (diffMs <= 0) return "Expired";
   const hours = Math.ceil(diffMs / 3_600_000);
   if (hours > 24) return `${Math.ceil(hours / 24)}d until removed`;
   return `${hours}h until removed`;
 }
 
-function formatPinTiming(pin: GamePin): string {
+function formatPinTiming(pin: GamePin, nowMs: number): string {
   if (pin.status !== "stocked") return formatStatus(pin.status);
-  if (pin.pinType === "temporary") return formatExpiry(pin.expiresAt);
-  return formatRestock(pin.restockDueAt);
+  if (pin.pinType === "temporary") return formatExpiry(pin.expiresAt, nowMs);
+  return formatRestock(pin.restockDueAt, nowMs);
+}
+
+function getRestockProgress(pin: GamePin, nowMs: number): number {
+  if (pin.pinType !== "standard" || !pin.restockDueAt) return 0;
+
+  const dueMs = new Date(pin.restockDueAt).getTime();
+  if (!Number.isFinite(dueMs) || dueMs <= nowMs) return 0;
+
+  const startMs = new Date(pin.lastRestockedAt ?? pin.placedAt).getTime();
+  const fallbackStartMs = dueMs - GAME_CONFIG.standardRestockHours * 3_600_000;
+  const effectiveStartMs = Number.isFinite(startMs) ? startMs : fallbackStartMs;
+  const totalMs = Math.max(1, dueMs - effectiveStartMs);
+
+  return Math.max(0, Math.min(1, (dueMs - nowMs) / totalMs));
 }
 
 function formatStatus(status: GamePin["status"]): string {
@@ -842,6 +973,13 @@ function formatHourlyTokenRate(pointsPerHour: number | null | undefined): string
   const tokensPerHour = points / GAME_CONFIG.tokenUnit;
   const sign = tokensPerHour >= 0 ? "+" : "";
   return `${sign}${tokensPerHour.toFixed(2)}/h`;
+}
+
+function formatCompactTokenCost(points: number): string {
+  return (points / GAME_CONFIG.tokenUnit)
+    .toFixed(2)
+    .replace(/^0\./, ".")
+    .replace(/\.00$/, "");
 }
 
 function ColorDot({ color }: { color: string }) {

@@ -19,7 +19,7 @@ Use this when moving the MVP from demo mode to a real friend-group game.
 
 Run [supabase/migrations/001_initial_game.sql](</Users/bradjones/Documents/current work/june26/rite/supabase/migrations/001_initial_game.sql>) in the Supabase SQL editor or through the Supabase CLI.
 
-If this project already had the first migration applied, run [supabase/migrations/002_manual_players_and_colors.sql](</Users/bradjones/Documents/current work/june26/rite/supabase/migrations/002_manual_players_and_colors.sql>) after it.
+If this project already had the first migration applied, run the later migration files in [supabase/migrations](</Users/bradjones/Documents/current work/june26/rite/supabase/migrations>) in order.
 
 The migration creates:
 
