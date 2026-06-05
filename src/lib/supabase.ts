@@ -140,7 +140,7 @@ class SupabaseGameAdapter implements GameAdapter {
   private async fetchPins(): Promise<GamePin[]> {
     const { data, error } = await this.supabase.rpc("get_visible_pins");
     if (error) throw error;
-    return (data ?? []).map(mapPinRow);
+    return (data ?? []).map(mapPinRow).filter(isVisiblePin);
   }
 
   private async fetchLeaderboard(): Promise<LeaderboardRow[]> {
@@ -176,4 +176,8 @@ function mapPinRow(row: Record<string, unknown>): GamePin {
     currentHourlyRate: Number(row.current_hourly_rate),
     competitionPressure: Number(row.competition_pressure)
   };
+}
+
+function isVisiblePin(pin: GamePin): boolean {
+  return !(pin.pinType === "temporary" && pin.status === "expired");
 }

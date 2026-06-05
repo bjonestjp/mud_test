@@ -8,6 +8,7 @@ interface GameMapProps {
   currentPlayerId: string | null;
   playerLocation: LocationReading | null;
   focusLocation: LocationFocus | null;
+  buildPreview: BuildPreview | null;
   selectedPinId: string | null;
   isDemoMode: boolean;
   onSelectPin: (pin: GamePin) => void;
@@ -20,6 +21,12 @@ export interface LocationFocus {
   requestId: number;
 }
 
+interface BuildPreview {
+  name: string;
+  pinType: GamePin["pinType"];
+  location: LocationReading;
+}
+
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 export function GameMap({
@@ -27,6 +34,7 @@ export function GameMap({
   currentPlayerId,
   playerLocation,
   focusLocation,
+  buildPreview,
   selectedPinId,
   isDemoMode,
   onSelectPin,
@@ -36,6 +44,7 @@ export function GameMap({
   const mapRef = useRef<Map | null>(null);
   const markersRef = useRef<Marker[]>([]);
   const playerLocationMarkerRef = useRef<Marker | null>(null);
+  const buildPreviewMarkerRef = useRef<Marker | null>(null);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
 
   useEffect(() => {
@@ -64,6 +73,8 @@ export function GameMap({
       markersRef.current = [];
       playerLocationMarkerRef.current?.remove();
       playerLocationMarkerRef.current = null;
+      buildPreviewMarkerRef.current?.remove();
+      buildPreviewMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -129,6 +140,39 @@ export function GameMap({
       playerLocationMarkerRef.current.setLngLat([playerLocation.lng, playerLocation.lat]);
     }
   }, [isDemoMode, playerLocation]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!buildPreview || !hasValidCoordinate(buildPreview.location)) {
+      buildPreviewMarkerRef.current?.remove();
+      buildPreviewMarkerRef.current = null;
+      return;
+    }
+
+    if (!buildPreviewMarkerRef.current) {
+      const element = document.createElement("div");
+      element.className = [
+        "build-preview-marker",
+        buildPreview.pinType === "temporary" ? "build-preview-marker--temporary" : ""
+      ]
+        .filter(Boolean)
+        .join(" ");
+      element.title = buildPreview.name;
+      buildPreviewMarkerRef.current = new maplibregl.Marker({
+        element,
+        anchor: "bottom"
+      })
+        .setLngLat([buildPreview.location.lng, buildPreview.location.lat])
+        .addTo(map);
+    } else {
+      buildPreviewMarkerRef.current.setLngLat([
+        buildPreview.location.lng,
+        buildPreview.location.lat
+      ]);
+    }
+  }, [buildPreview]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -50,6 +50,7 @@ The frontend calls these Supabase RPCs:
 - Real accounts through Supabase Auth
 - Full-screen MapLibre map
 - Standard coffee shop pins
+- Pop-up kiosks that cost 1 token and disappear after 3 days
 - Free map browsing, with live pin placement tied to the player's current browser location
 - 3 starting tokens, 2-token standard pin cost
 - 50m restock radius

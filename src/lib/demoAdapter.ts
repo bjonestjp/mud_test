@@ -60,8 +60,9 @@ export class DemoAdapter implements GameAdapter {
 
   async placePin(input: PlacePinInput): Promise<GameState> {
     this.settleIncome();
+    const cost = getPinCost(input.pinType);
 
-    if (this.store.profile.pointsBalance < GAME_CONFIG.standardPinCost) {
+    if (this.store.profile.pointsBalance < cost) {
       throw new Error("Not enough tokens.");
     }
 
@@ -78,16 +79,20 @@ export class DemoAdapter implements GameAdapter {
       busyLabel: "Steady",
       placedAt: now.toISOString(),
       visibleAt: now.toISOString(),
-      lastRestockedAt: now.toISOString(),
-      restockDueAt: addHours(now, GAME_CONFIG.standardRestockHours).toISOString(),
-      expiresAt: null,
+      lastRestockedAt: input.pinType === "standard" ? now.toISOString() : null,
+      restockDueAt: input.pinType === "standard"
+        ? addHours(now, GAME_CONFIG.standardRestockHours).toISOString()
+        : null,
+      expiresAt: input.pinType === "temporary"
+        ? addHours(now, GAME_CONFIG.standardRestockHours).toISOString()
+        : null,
       status: "stocked",
       currentHourlyRate: 0,
       competitionPressure: 0
     };
 
     pin.busyLabel = getBusyLabel(pin.busyScore);
-    this.store.profile.pointsBalance -= GAME_CONFIG.standardPinCost;
+    this.store.profile.pointsBalance -= cost;
     this.store.pins = [pin, ...this.store.pins];
     this.recalculatePins();
     saveStore(this.store);
@@ -100,6 +105,7 @@ export class DemoAdapter implements GameAdapter {
 
     if (!pin) throw new Error("Pin was not found.");
     if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("This is not your pin.");
+    if (pin.pinType !== "standard") throw new Error("Kiosks cannot be restocked.");
 
     const distance = distanceMeters(
       { lat: pin.lat, lng: pin.lng },
@@ -153,6 +159,9 @@ export class DemoAdapter implements GameAdapter {
     for (const pin of this.store.pins) {
       refreshPinStatus(pin, now);
     }
+    this.store.pins = this.store.pins.filter(
+      (pin) => !(pin.pinType === "temporary" && pin.status === "expired")
+    );
 
     for (const pin of this.store.pins) {
       if (pin.status !== "stocked") {
@@ -324,6 +333,11 @@ function refreshPinStatus(pin: GamePin, now: Date): void {
     return;
   }
 
+  if (pin.pinType === "temporary") {
+    pin.status = "stocked";
+    return;
+  }
+
   if (pin.restockDueAt && new Date(pin.restockDueAt) <= now) {
     pin.status = "needs_restock";
     return;
@@ -375,4 +389,8 @@ function estimateDemoBusyScore(lat: number, lng: number): number {
 
 function addHours(date: Date, hours: number): Date {
   return new Date(date.getTime() + hours * 3_600_000);
+}
+
+function getPinCost(pinType: PlacePinInput["pinType"]): number {
+  return pinType === "temporary" ? GAME_CONFIG.temporaryPinCost : GAME_CONFIG.standardPinCost;
 }

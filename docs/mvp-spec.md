@@ -44,7 +44,7 @@ These should live in a database table or config module so they are easy to tune.
 | Own pins compete | Yes |
 | Income accrual | Automatic, settled lazily |
 
-Temporary pins can be represented in the data model from the start, but do not need to be exposed in the first UI.
+The build flow exposes standard shops and temporary pop-up kiosks from the first UI.
 
 ## MVP Screens
 
@@ -138,7 +138,7 @@ competition_multiplier = 1 / (1 + total_pressure)
 hourly_rate_points = round(base_hourly_points * competition_multiplier, 2)
 ```
 
-Only active, stocked pins compete. Pins that need restocking do not earn and do not compete. Temporary pins, once added, compete only until they expire.
+Only active, stocked pins compete. Pins that need restocking do not earn and do not compete. Pop-up kiosks compete only until they expire.
 
 This produces intuitive behavior:
 
@@ -428,7 +428,7 @@ expires_at = placed_at + 72 hours
 restock_due_at = null
 ```
 
-Temporary pins should earn and compete until `expires_at`, then stop earning and stop competing.
+Pop-up kiosks should earn and compete until `expires_at`, then disappear from the player-facing map.
 
 ### Upgrades
 

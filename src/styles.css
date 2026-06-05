@@ -107,7 +107,7 @@ button:disabled {
 
 .maplibregl-ctrl-bottom-left,
 .maplibregl-ctrl-bottom-right {
-  bottom: calc(82px + env(safe-area-inset-bottom));
+  bottom: calc(112px + env(safe-area-inset-bottom));
 }
 
 .pin-marker {
@@ -161,6 +161,45 @@ button:disabled {
     0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
+.build-preview-marker {
+  width: 34px;
+  height: 42px;
+  border: 0;
+  background: transparent;
+  transform: translateY(0);
+}
+
+.build-preview-marker::before {
+  position: absolute;
+  top: 0;
+  left: 4px;
+  width: 26px;
+  height: 26px;
+  border: 3px solid #fff;
+  border-radius: 8px 8px 8px 0;
+  background: var(--blue);
+  box-shadow:
+    0 0 0 5px rgba(47, 95, 159, 0.22),
+    0 8px 18px rgba(0, 0, 0, 0.28);
+  content: "";
+  transform: rotate(-45deg);
+}
+
+.build-preview-marker::after {
+  position: absolute;
+  top: 9px;
+  left: 13px;
+  color: #fff;
+  content: "+";
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.build-preview-marker--temporary::before {
+  background: #8a5b20;
+}
+
 .top-bar {
   position: absolute;
   top: 16px;
@@ -177,6 +216,7 @@ button:disabled {
 .brand-lockup,
 .top-actions,
 .bottom-actions,
+.build-confirm-bar,
 .screen-panel,
 .auth-panel,
 .toast {
@@ -317,6 +357,51 @@ button:disabled {
   color: #fff;
 }
 
+.build-confirm-bar {
+  position: absolute;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 16px;
+  z-index: 6;
+  display: grid;
+  max-width: 560px;
+  margin: 0 auto;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.build-confirm-bar > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.build-confirm-bar span,
+.build-confirm-bar small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.build-confirm-bar strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-confirm-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 8px;
+}
+
+.build-confirm-actions .secondary-action {
+  width: auto;
+  background: #69736f;
+}
+
 .screen-panel {
   position: absolute;
   inset: 0;
@@ -353,6 +438,61 @@ button:disabled {
   gap: 14px;
   max-width: 560px;
   margin: 0 auto;
+}
+
+.panel-stack .primary-action {
+  width: 100%;
+}
+
+.shop-type-list {
+  display: grid;
+  gap: 10px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.shop-type-button,
+.selected-build-type {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.shop-type-button span,
+.selected-build-type span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.shop-type-button small,
+.selected-build-type small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.shop-type-button b,
+.selected-build-type b {
+  flex-shrink: 0;
+  color: var(--green-dark);
+}
+
+.text-action {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-weight: 800;
+  padding: 0;
 }
 
 .section-title {
@@ -591,6 +731,12 @@ input:focus {
   }
 
   .bottom-actions {
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    left: 10px;
+  }
+
+  .build-confirm-bar {
     right: 10px;
     bottom: calc(10px + env(safe-area-inset-bottom));
     left: 10px;

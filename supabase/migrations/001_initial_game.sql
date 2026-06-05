@@ -836,6 +836,10 @@ begin
     limit 1
   ) period on true
   where pin.visible_at <= now()
+    and not (
+      pin.pin_type = 'temporary'
+      and pin.expires_at <= now()
+    )
   order by pin.placed_at desc;
 end;
 $$;

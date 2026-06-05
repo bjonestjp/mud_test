@@ -19,7 +19,7 @@ import type { LocationFocus } from "./components/GameMap";
 import { createGameAdapter } from "./lib/gameAdapter";
 import { EDINBURGH_CENTER, GAME_CONFIG, pointsToTokens } from "./lib/constants";
 import { requestCurrentLocation } from "./lib/geo";
-import type { GamePin, GameState, LocationReading } from "./types";
+import type { GamePin, GameState, LocationReading, PinType } from "./types";
 
 const EMPTY_STATE: GameState = {
   profile: null,
@@ -28,7 +28,37 @@ const EMPTY_STATE: GameState = {
   isDemoMode: false
 };
 
-type ActivePanel = "newShop" | "shops" | "leaderboard" | null;
+type ActivePanel = "build" | "shops" | "leaderboard" | null;
+
+interface ShopTypeOption {
+  pinType: PinType;
+  label: string;
+  blurb: string;
+  costPoints: number;
+}
+
+interface PendingBuild {
+  name: string;
+  pinType: PinType;
+  label: string;
+  costPoints: number;
+  location: LocationReading;
+}
+
+const SHOP_TYPES: ShopTypeOption[] = [
+  {
+    pinType: "standard",
+    label: "Standard Shop",
+    blurb: "A bog standard coffee shop.",
+    costPoints: GAME_CONFIG.standardPinCost
+  },
+  {
+    pinType: "temporary",
+    label: "Pop-Up Kiosk",
+    blurb: "A temporary mud stall that's gone after three days.",
+    costPoints: GAME_CONFIG.temporaryPinCost
+  }
+];
 
 export default function App() {
   const adapter = useMemo(() => createGameAdapter(), []);
@@ -38,6 +68,8 @@ export default function App() {
   const [playerLocation, setPlayerLocation] = useState<LocationReading | null>(null);
   const [focusLocation, setFocusLocation] = useState<LocationFocus | null>(null);
   const [shopName, setShopName] = useState("");
+  const [selectedBuildType, setSelectedBuildType] = useState<PinType | null>(null);
+  const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -46,6 +78,7 @@ export default function App() {
 
   const selectedPin = game.pins.find((pin) => pin.id === selectedPinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
+  const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
 
   const run = useCallback(
     async (work: () => Promise<GameState | void>, success?: string) => {
@@ -113,8 +146,12 @@ export default function App() {
       });
     }, game.isDemoMode ? "Simulated location set" : "Location found");
 
-  const placePin = () =>
+  const previewBuild = () =>
     run(async () => {
+      if (!selectedShopType) {
+        throw new Error("Choose a shop type first.");
+      }
+
       const location = await getPlacementLocation(game.isDemoMode, playerLocation);
       setPlayerLocation(location);
       setFocusLocation({
@@ -122,18 +159,39 @@ export default function App() {
         lng: location.lng,
         requestId: Date.now()
       });
+      setPendingBuild({
+        name: shopName.trim() || selectedShopType.label,
+        pinType: selectedShopType.pinType,
+        label: selectedShopType.label,
+        costPoints: selectedShopType.costPoints,
+        location
+      });
+      setActivePanel(null);
+    }, "Check the map, then confirm");
+
+  const confirmBuild = () => {
+    if (!pendingBuild) return;
+
+    void run(async () => {
       const next = await adapter.placePin({
-        lat: location.lat,
-        lng: location.lng,
-        accuracy: location.accuracy,
-        name: shopName || "New Shop",
-        pinType: "standard"
+        lat: pendingBuild.location.lat,
+        lng: pendingBuild.location.lng,
+        accuracy: pendingBuild.location.accuracy,
+        name: pendingBuild.name,
+        pinType: pendingBuild.pinType
       });
       setShopName("");
       setSelectedPinId(next.pins[0]?.id ?? null);
+      setPendingBuild(null);
+      setSelectedBuildType(null);
       setActivePanel(null);
       return next;
-    }, "Shop placed");
+    }, `${pendingBuild.label} built`);
+  };
+
+  const cancelBuild = () => {
+    setPendingBuild(null);
+  };
 
   const restockPin = () => {
     if (!selectedPin) return;
@@ -215,6 +273,7 @@ export default function App() {
         currentPlayerId={game.profile?.id ?? null}
         playerLocation={playerLocation}
         focusLocation={focusLocation}
+        buildPreview={pendingBuild}
         selectedPinId={selectedPinId}
         isDemoMode={game.isDemoMode}
         onSelectPin={(pin) => {
@@ -247,38 +306,47 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="bottom-actions" aria-label="Game actions">
-        <button
-          className={activePanel === "newShop" ? "bottom-action bottom-action--active" : "bottom-action"}
-          type="button"
-          onClick={() => setActivePanel("newShop")}
-        >
-          <MapPin size={20} />
-          <span>New</span>
-        </button>
-        <button
-          className={activePanel === "shops" ? "bottom-action bottom-action--active" : "bottom-action"}
-          type="button"
-          onClick={() => setActivePanel("shops")}
-        >
-          <Users size={20} />
-          <span>Shops</span>
-        </button>
-        <button
-          className={activePanel === "leaderboard" ? "bottom-action bottom-action--active" : "bottom-action"}
-          type="button"
-          onClick={() => setActivePanel("leaderboard")}
-        >
-          <Trophy size={20} />
-          <span>Scores</span>
-        </button>
-      </nav>
+      {pendingBuild ? (
+        <BuildConfirmBar
+          build={pendingBuild}
+          isBusy={isBusy}
+          onConfirm={confirmBuild}
+          onCancel={cancelBuild}
+        />
+      ) : (
+        <nav className="bottom-actions" aria-label="Game actions">
+          <button
+            className={activePanel === "build" ? "bottom-action bottom-action--active" : "bottom-action"}
+            type="button"
+            onClick={() => setActivePanel("build")}
+          >
+            <MapPin size={20} />
+            <span>Build</span>
+          </button>
+          <button
+            className={activePanel === "shops" ? "bottom-action bottom-action--active" : "bottom-action"}
+            type="button"
+            onClick={() => setActivePanel("shops")}
+          >
+            <Users size={20} />
+            <span>Shops</span>
+          </button>
+          <button
+            className={activePanel === "leaderboard" ? "bottom-action bottom-action--active" : "bottom-action"}
+            type="button"
+            onClick={() => setActivePanel("leaderboard")}
+          >
+            <Trophy size={20} />
+            <span>Scores</span>
+          </button>
+        </nav>
+      )}
 
       {activePanel ? (
         <section className="screen-panel" role="dialog" aria-modal="true">
           <div className="screen-panel__header">
             <div className="section-title">
-              {activePanel === "newShop" ? <MapPin size={20} /> : null}
+              {activePanel === "build" ? <MapPin size={20} /> : null}
               {activePanel === "shops" ? <Users size={20} /> : null}
               {activePanel === "leaderboard" ? <Trophy size={20} /> : null}
               <h2>{getPanelTitle(activePanel)}</h2>
@@ -289,15 +357,18 @@ export default function App() {
           </div>
 
           <div className="screen-panel__body">
-            {activePanel === "newShop" ? (
-              <NewShopPanel
+            {activePanel === "build" ? (
+              <BuildPanel
+                shopTypes={SHOP_TYPES}
+                selectedBuildType={selectedBuildType}
+                onSelectBuildType={setSelectedBuildType}
                 shopName={shopName}
                 setShopName={setShopName}
                 pointsBalance={game.profile?.pointsBalance ?? 0}
                 isBusy={isBusy}
                 isDemoMode={game.isDemoMode}
                 hasPlayerLocation={Boolean(playerLocation)}
-                onPlacePin={placePin}
+                onPreviewBuild={previewBuild}
               />
             ) : null}
 
@@ -323,52 +394,123 @@ export default function App() {
   );
 }
 
-function NewShopPanel({
+function BuildPanel({
+  shopTypes,
+  selectedBuildType,
+  onSelectBuildType,
   shopName,
   setShopName,
   pointsBalance,
   isBusy,
   isDemoMode,
   hasPlayerLocation,
-  onPlacePin
+  onPreviewBuild
 }: {
+  shopTypes: ShopTypeOption[];
+  selectedBuildType: PinType | null;
+  onSelectBuildType: (pinType: PinType | null) => void;
   shopName: string;
   setShopName: (value: string) => void;
   pointsBalance: number;
   isBusy: boolean;
   isDemoMode: boolean;
   hasPlayerLocation: boolean;
-  onPlacePin: () => void;
+  onPreviewBuild: () => void;
 }) {
+  const selectedOption = shopTypes.find((option) => option.pinType === selectedBuildType) ?? null;
+
+  if (!selectedOption) {
+    return (
+      <div className="shop-type-list">
+        {shopTypes.map((option) => (
+          <button
+            className="shop-type-button"
+            type="button"
+            key={option.pinType}
+            onClick={() => onSelectBuildType(option.pinType)}
+            disabled={isBusy || pointsBalance < option.costPoints}
+          >
+            <span>
+              <strong>{option.label}</strong>
+              <small>{option.blurb}</small>
+            </span>
+            <b>{formatTokenAmount(option.costPoints)}</b>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="panel-stack">
+      <button className="text-action" type="button" onClick={() => onSelectBuildType(null)}>
+        Change type
+      </button>
+      <div className="selected-build-type">
+        <span>
+          <strong>{selectedOption.label}</strong>
+          <small>{selectedOption.blurb}</small>
+        </span>
+        <b>{formatTokenAmount(selectedOption.costPoints)}</b>
+      </div>
       <label className="field">
         <span>Shop name</span>
         <input
           value={shopName}
-          placeholder="New Shop"
+          placeholder={selectedOption.label}
           onChange={(event) => setShopName(event.target.value)}
           maxLength={42}
         />
       </label>
       <div className="metric-row">
         <span>Cost</span>
-        <strong>{pointsToTokens(GAME_CONFIG.standardPinCost)} tokens</strong>
+        <strong>{formatTokenAmount(selectedOption.costPoints)}</strong>
       </div>
       <div className="metric-row">
         <span>Location</span>
-        <strong>{isDemoMode ? "Simulated" : hasPlayerLocation ? "GPS ready" : "GPS on drop"}</strong>
+        <strong>{isDemoMode ? "Simulated" : hasPlayerLocation ? "GPS ready" : "GPS on preview"}</strong>
       </div>
       <button
         className="primary-action"
         type="button"
-        onClick={onPlacePin}
-        disabled={isBusy || pointsBalance < GAME_CONFIG.standardPinCost}
+        onClick={onPreviewBuild}
+        disabled={isBusy || pointsBalance < selectedOption.costPoints}
       >
-        <Plus size={20} />
-        Drop Shop
+        <MapPin size={20} />
+        Preview Location
       </button>
     </div>
+  );
+}
+
+function BuildConfirmBar({
+  build,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  build: PendingBuild;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="build-confirm-bar">
+      <div>
+        <span>{build.label}</span>
+        <strong>{build.name}</strong>
+        <small>{formatTokenAmount(build.costPoints)}</small>
+      </div>
+      <div className="build-confirm-actions">
+        <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+          Cancel
+        </button>
+        <button className="primary-action" type="button" onClick={onConfirm} disabled={isBusy}>
+          <Plus size={18} />
+          Confirm
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -438,8 +580,8 @@ function LeaderboardPanel({
 
 function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
   switch (panel) {
-    case "newShop":
-      return "New Shop";
+    case "build":
+      return "Build";
     case "shops":
       return "Your Shops";
     case "leaderboard":
@@ -449,8 +591,12 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
 
 function formatPlayerSummary(game: GameState): string {
   const name = game.profile?.displayName ?? (game.isDemoMode ? "Demo player" : "Player");
-  const tokens = pointsToTokens(game.profile?.pointsBalance ?? 0);
-  return `${name} · ${tokens} tokens`;
+  return `${name} · ${formatTokenAmount(game.profile?.pointsBalance ?? 0)}`;
+}
+
+function formatTokenAmount(points: number): string {
+  const tokens = pointsToTokens(points);
+  return `${tokens} ${tokens === "1" ? "token" : "tokens"}`;
 }
 
 function PinDetail({
@@ -484,9 +630,9 @@ function PinDetail({
       </div>
       <div className="status-strip">
         <Timer size={16} />
-        <span>{pin.status === "stocked" ? formatRestock(pin.restockDueAt) : formatStatus(pin.status)}</span>
+        <span>{formatPinTiming(pin)}</span>
       </div>
-      {isOwner ? (
+      {isOwner && pin.pinType === "standard" ? (
         <button className="secondary-action" type="button" onClick={onRestock} disabled={isBusy}>
           <PackageCheck size={18} />
           Restock
@@ -582,6 +728,21 @@ function formatRestock(value: string | null): string {
   const hours = Math.ceil(diffMs / 3_600_000);
   if (hours > 24) return `${Math.ceil(hours / 24)}d stocked`;
   return `${hours}h stocked`;
+}
+
+function formatExpiry(value: string | null): string {
+  if (!value) return "No expiry";
+  const diffMs = new Date(value).getTime() - Date.now();
+  if (diffMs <= 0) return "Expired";
+  const hours = Math.ceil(diffMs / 3_600_000);
+  if (hours > 24) return `${Math.ceil(hours / 24)}d until removed`;
+  return `${hours}h until removed`;
+}
+
+function formatPinTiming(pin: GamePin): string {
+  if (pin.status !== "stocked") return formatStatus(pin.status);
+  if (pin.pinType === "temporary") return formatExpiry(pin.expiresAt);
+  return formatRestock(pin.restockDueAt);
 }
 
 function formatStatus(status: GamePin["status"]): string {
