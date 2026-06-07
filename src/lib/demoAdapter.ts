@@ -742,7 +742,7 @@ function buildLeaderboard(store: DemoStore): LeaderboardRow[] {
   ensure(store.profile.id, store.profile.displayName, store.profile.playerColor);
   for (const pin of store.pins) {
     const row = ensure(pin.ownerId, pin.ownerName, pin.ownerColor);
-    if (pin.status === "stocked") row.activePins += 1;
+    if (!(pin.pinType === "temporary" && pin.status === "expired")) row.activePins += 1;
   }
 
   return [...players.values()].sort((a, b) => b.pointsBalance - a.pointsBalance);
@@ -754,17 +754,29 @@ function buildDemoScoreHistory(store: DemoStore): ScoreHistoryPoint[] {
 
   return leaderboard.flatMap((row, playerIndex) => {
     const points = Math.max(0, row.pointsBalance);
+    const lifetimeIncome = Math.max(0, row.lifetimeIncome);
+    const activePins = Math.max(0, row.activePins);
     const drift = 34 + playerIndex * 9;
     const wobble = playerIndex % 2 === 0 ? 18 : -12;
 
     return [5, 4, 3, 2, 1, 0].map((daysAgo, pointIndex) => {
       const baseline = Math.max(0, points - drift * daysAgo + wobble * Math.sin(pointIndex + playerIndex));
+      const lifetimeBaseline = Math.max(
+        0,
+        lifetimeIncome - (18 + playerIndex * 7) * daysAgo
+      );
+      const pinBaseline = Math.max(
+        0,
+        activePins - Math.max(0, Math.ceil((daysAgo - 2 - (playerIndex % 2)) / 2))
+      );
 
       return {
         playerId: row.playerId,
         displayName: row.displayName,
         playerColor: row.playerColor,
         pointsBalance: daysAgo === 0 ? points : Number(baseline.toFixed(2)),
+        lifetimeIncome: daysAgo === 0 ? lifetimeIncome : Number(lifetimeBaseline.toFixed(2)),
+        activePins: daysAgo === 0 ? activePins : pinBaseline,
         recordedAt: addHours(now, -24 * daysAgo).toISOString()
       };
     });

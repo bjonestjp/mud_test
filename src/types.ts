@@ -49,6 +49,8 @@ export interface ScoreHistoryPoint {
   displayName: string;
   playerColor: string;
   pointsBalance: number;
+  lifetimeIncome: number;
+  activePins: number;
   recordedAt: string;
 }
 

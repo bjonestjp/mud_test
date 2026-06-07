@@ -112,6 +112,19 @@ interface ShopLevelModel {
   bonusPointsPerHour: number;
 }
 
+type ScoreMetricKey = "current" | "lifetime" | "shops";
+
+interface ScoreMetricConfig {
+  key: ScoreMetricKey;
+  label: string;
+  chartTitle: string;
+  leaderboardTitle: string;
+  getLeaderboardValue: (row: LeaderboardRow) => number;
+  getHistoryValue: (point: ScoreHistoryPoint) => number;
+  formatValue: (value: number) => string;
+  formatAxisValue: (value: number) => string;
+}
+
 export default function App() {
   const adapter = useMemo(() => createGameAdapter(), []);
   const [game, setGame] = useState<GameState>(EMPTY_STATE);
@@ -1054,21 +1067,50 @@ function ScoresPanel({
   leaderboard: GameState["leaderboard"];
   scoreHistory: GameState["scoreHistory"];
 }) {
+  const [activeMetric, setActiveMetric] = useState<ScoreMetricKey>("current");
+  const metric = SCORE_METRICS[activeMetric];
+  const sortedLeaderboard = useMemo(
+    () => sortLeaderboardForMetric(leaderboard, metric),
+    [leaderboard, metric]
+  );
+
   return (
     <div className="scores-stack">
-      <ScoreHistoryChart leaderboard={leaderboard} scoreHistory={scoreHistory} />
+      <div className="score-tabs" role="tablist" aria-label="Score views">
+        {SCORE_METRIC_ORDER.map((metricKey) => {
+          const option = SCORE_METRICS[metricKey];
+
+          return (
+            <button
+              className={activeMetric === metricKey ? "score-tab score-tab--active" : "score-tab"}
+              type="button"
+              role="tab"
+              aria-selected={activeMetric === metricKey}
+              key={metricKey}
+              onClick={() => setActiveMetric(metricKey)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <ScoreHistoryChart
+        leaderboard={sortedLeaderboard}
+        scoreHistory={scoreHistory}
+        metric={metric}
+      />
       <section className="leaderboard-section" aria-label="Leaderboard">
         <div className="panel-subtitle">
-          <h3>Leaderboard</h3>
+          <h3>{metric.leaderboardTitle}</h3>
         </div>
         <div className="stack-list">
-          {leaderboard.map((row, index) => (
+          {sortedLeaderboard.map((row, index) => (
             <div className="list-row list-row--static" key={row.playerId}>
               <span className="list-row__label">
                 <ColorDot color={row.playerColor} />
                 {index + 1}. {row.displayName}
               </span>
-              <strong>{formatTokenAmount(row.pointsBalance)}</strong>
+              <strong>{metric.formatValue(metric.getLeaderboardValue(row))}</strong>
             </div>
           ))}
         </div>
@@ -1391,21 +1433,23 @@ function BulletinComposerPanel({
 
 function ScoreHistoryChart({
   leaderboard,
-  scoreHistory
+  scoreHistory,
+  metric
 }: {
   leaderboard: LeaderboardRow[];
   scoreHistory: ScoreHistoryPoint[];
+  metric: ScoreMetricConfig;
 }) {
   const chart = useMemo(
-    () => buildScoreChartModel(leaderboard, scoreHistory),
-    [leaderboard, scoreHistory]
+    () => buildScoreChartModel(leaderboard, scoreHistory, metric),
+    [leaderboard, scoreHistory, metric]
   );
 
   if (!chart) {
     return (
       <section className="score-chart-card" aria-label="Score history">
         <div className="score-chart-card__header">
-          <h3>Score History</h3>
+          <h3>{metric.chartTitle}</h3>
         </div>
         <p className="muted">No scores yet.</p>
       </section>
@@ -1415,7 +1459,7 @@ function ScoreHistoryChart({
   return (
     <section className="score-chart-card" aria-label="Score history">
       <div className="score-chart-card__header">
-        <h3>Score History</h3>
+        <h3>{metric.chartTitle}</h3>
         <span>{formatDateRange(chart.minTime, chart.maxTime)}</span>
       </div>
       <div className="score-chart-frame">
@@ -1430,7 +1474,7 @@ function ScoreHistoryChart({
                 y2={tick.y}
               />
               <text className="score-chart__axis-label" x={chart.plotLeft - 8} y={tick.y + 4} textAnchor="end">
-                {formatAxisTokenLabel(tick.value)}
+                {metric.formatAxisValue(tick.value)}
               </text>
             </g>
           ))}
@@ -1473,7 +1517,7 @@ function ScoreHistoryChart({
               <ColorDot color={series.playerColor} />
               {series.displayName}
             </span>
-            <strong>{formatTokenAmount(series.latestPoints)}</strong>
+            <strong>{metric.formatValue(series.latestPoints)}</strong>
           </div>
         ))}
       </div>
@@ -1534,6 +1578,62 @@ function formatTokenAmount(points: number): string {
   return `${tokens} ${tokens === 1 ? "token" : "tokens"}`;
 }
 
+function formatTokenScore(points: number): string {
+  const tokens = Math.max(0, points) / GAME_CONFIG.tokenUnit;
+  const label = tokens === 1 ? "token" : "tokens";
+  return `${tokens.toFixed(2)} ${label}`;
+}
+
+function formatShopCount(value: number): string {
+  const count = Math.max(0, Math.floor(value));
+  return `${count} ${count === 1 ? "shop" : "shops"}`;
+}
+
+const SCORE_METRICS: Record<ScoreMetricKey, ScoreMetricConfig> = {
+  current: {
+    key: "current",
+    label: "Current",
+    chartTitle: "Current Tokens",
+    leaderboardTitle: "Current Tokens",
+    getLeaderboardValue: (row) => row.pointsBalance,
+    getHistoryValue: (point) => point.pointsBalance,
+    formatValue: formatTokenAmount,
+    formatAxisValue: formatAxisTokenLabel
+  },
+  lifetime: {
+    key: "lifetime",
+    label: "Lifetime",
+    chartTitle: "Lifetime Tokens",
+    leaderboardTitle: "Lifetime Tokens",
+    getLeaderboardValue: (row) => row.lifetimeIncome,
+    getHistoryValue: (point) => point.lifetimeIncome,
+    formatValue: formatTokenScore,
+    formatAxisValue: formatAxisTokenLabel
+  },
+  shops: {
+    key: "shops",
+    label: "Shops",
+    chartTitle: "Total Shops",
+    leaderboardTitle: "Total Shops",
+    getLeaderboardValue: (row) => row.activePins,
+    getHistoryValue: (point) => point.activePins,
+    formatValue: formatShopCount,
+    formatAxisValue: (value) => Math.round(value).toString()
+  }
+};
+const SCORE_METRIC_ORDER: ScoreMetricKey[] = ["current", "lifetime", "shops"];
+
+function sortLeaderboardForMetric(
+  leaderboard: LeaderboardRow[],
+  metric: ScoreMetricConfig
+): LeaderboardRow[] {
+  return [...leaderboard].sort((a, b) => {
+    const valueDifference = metric.getLeaderboardValue(b) - metric.getLeaderboardValue(a);
+    if (Math.abs(valueDifference) > 0.001) return valueDifference;
+    return a.displayName.localeCompare(b.displayName);
+  });
+}
+
 const SCORE_CHART_WIDTH = 640;
 const SCORE_CHART_HEIGHT = 280;
 const SCORE_CHART_PLOT = {
@@ -1545,7 +1645,7 @@ const SCORE_CHART_PLOT = {
 
 interface ScoreChartPoint {
   time: number;
-  pointsBalance: number;
+  value: number;
   x: number;
   y: number;
   isLatest: boolean;
@@ -1574,40 +1674,42 @@ interface ScoreChartModel {
 
 function buildScoreChartModel(
   leaderboard: LeaderboardRow[],
-  history: ScoreHistoryPoint[]
+  history: ScoreHistoryPoint[],
+  metric: ScoreMetricConfig
 ): ScoreChartModel | null {
   if (leaderboard.length === 0) return null;
 
   const now = Date.now();
-  const historyByPlayer = new Map<string, Array<{ time: number; pointsBalance: number }>>();
+  const historyByPlayer = new Map<string, Array<{ time: number; value: number }>>();
 
   for (const point of history) {
     const time = new Date(point.recordedAt).getTime();
-    const pointsBalance = Number(point.pointsBalance);
-    if (!Number.isFinite(time) || !Number.isFinite(pointsBalance)) continue;
+    const value = Number(metric.getHistoryValue(point));
+    if (!Number.isFinite(time) || !Number.isFinite(value)) continue;
 
     const points = historyByPlayer.get(point.playerId) ?? [];
-    points.push({ time, pointsBalance });
+    points.push({ time, value });
     historyByPlayer.set(point.playerId, points);
   }
 
   const rawSeries = leaderboard.map((row) => {
     const points = [...(historyByPlayer.get(row.playerId) ?? [])].sort((a, b) => a.time - b.time);
     const latest = points[points.length - 1];
+    const currentValue = metric.getLeaderboardValue(row);
 
     if (!latest) {
-      points.push({ time: now, pointsBalance: row.pointsBalance });
+      points.push({ time: now, value: currentValue });
     } else if (
-      Math.abs(latest.pointsBalance - row.pointsBalance) > 0.01 ||
+      Math.abs(latest.value - currentValue) > 0.01 ||
       now - latest.time > 60_000
     ) {
-      points.push({ time: now, pointsBalance: row.pointsBalance });
+      points.push({ time: now, value: currentValue });
     }
 
     if (points.length === 1) {
       points.unshift({
         time: points[0].time - 6 * 3_600_000,
-        pointsBalance: points[0].pointsBalance
+        value: points[0].value
       });
     }
 
@@ -1615,7 +1717,7 @@ function buildScoreChartModel(
       playerId: row.playerId,
       displayName: row.displayName,
       playerColor: row.playerColor,
-      latestPoints: row.pointsBalance,
+      latestValue: currentValue,
       rawPoints: points
     };
   });
@@ -1630,9 +1732,10 @@ function buildScoreChartModel(
     maxTime += 6 * 3_600_000;
   }
 
-  const minPoints = Math.min(0, ...allPoints.map((point) => point.pointsBalance));
-  const maxPoints = Math.max(...allPoints.map((point) => point.pointsBalance), GAME_CONFIG.tokenUnit);
-  const padding = Math.max(GAME_CONFIG.tokenUnit, (maxPoints - minPoints) * 0.12);
+  const minPoints = Math.min(0, ...allPoints.map((point) => point.value));
+  const minimumChartValue = metric.key === "shops" ? 1 : GAME_CONFIG.tokenUnit;
+  const maxPoints = Math.max(...allPoints.map((point) => point.value), minimumChartValue);
+  const padding = Math.max(minimumChartValue, (maxPoints - minPoints) * 0.12);
   const yMin = Math.max(0, minPoints - padding);
   const yMax = maxPoints + padding;
 
@@ -1649,7 +1752,7 @@ function buildScoreChartModel(
     const plottedPoints = raw.rawPoints.map((point, index) => ({
       ...point,
       x: xForTime(point.time),
-      y: yForPoints(point.pointsBalance),
+      y: yForPoints(point.value),
       isLatest: index === raw.rawPoints.length - 1
     }));
 
@@ -1657,7 +1760,7 @@ function buildScoreChartModel(
       playerId: raw.playerId,
       displayName: raw.displayName,
       playerColor: raw.playerColor,
-      latestPoints: raw.latestPoints,
+      latestPoints: raw.latestValue,
       points: plottedPoints,
       path: plottedPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ")
     };
@@ -1671,7 +1774,7 @@ function buildScoreChartModel(
     plotBottom: SCORE_CHART_PLOT.bottom,
     minTime,
     maxTime,
-    yTicks: buildScoreChartTicks(yMin, yMax, yForPoints),
+    yTicks: buildScoreChartTicks(yMin, yMax, yForPoints, metric),
     series
   };
 }
@@ -1679,8 +1782,25 @@ function buildScoreChartModel(
 function buildScoreChartTicks(
   minPoints: number,
   maxPoints: number,
-  yForPoints: (points: number) => number
+  yForPoints: (points: number) => number,
+  metric: ScoreMetricConfig
 ): Array<{ value: number; y: number }> {
+  if (metric.key === "shops") {
+    const maxTick = Math.max(1, Math.ceil(maxPoints));
+    const step = maxTick <= 4 ? 1 : Math.ceil(maxTick / 3);
+    const values = new Set<number>();
+
+    for (let value = 0; value <= maxTick; value += step) {
+      values.add(value);
+    }
+    values.add(maxTick);
+
+    return [...values].sort((a, b) => a - b).map((value) => ({
+      value,
+      y: yForPoints(value)
+    }));
+  }
+
   return [0, 0.33, 0.66, 1].map((ratio) => {
     const value = minPoints + (maxPoints - minPoints) * ratio;
     return {

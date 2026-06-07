@@ -326,7 +326,15 @@ class SupabaseGameAdapter implements GameAdapter {
       throw error;
     }
 
-    const history = (data ?? []).map(mapScoreHistoryRow);
+    const rows = (data ?? []) as Record<string, unknown>[];
+    if (
+      rows.length > 0 &&
+      rows.every((row) => !("lifetime_income" in row) && !("active_pins" in row))
+    ) {
+      return currentScoreHistoryFromLeaderboard(leaderboard);
+    }
+
+    const history = rows.map(mapScoreHistoryRow);
     return history.length > 0 ? history : currentScoreHistoryFromLeaderboard(leaderboard);
   }
 
@@ -648,6 +656,8 @@ function mapScoreHistoryRow(row: Record<string, unknown>): ScoreHistoryPoint {
     displayName: String(row.display_name),
     playerColor: safeColor(row.player_color, String(row.player_id)),
     pointsBalance: Number(row.points_balance),
+    lifetimeIncome: safeNumber(row.lifetime_income, 0),
+    activePins: Math.max(0, Math.floor(safeNumber(row.active_pins, 0))),
     recordedAt: String(row.recorded_at)
   };
 }
@@ -659,6 +669,8 @@ function currentScoreHistoryFromLeaderboard(leaderboard: LeaderboardRow[]): Scor
     displayName: row.displayName,
     playerColor: row.playerColor,
     pointsBalance: row.pointsBalance,
+    lifetimeIncome: row.lifetimeIncome,
+    activePins: row.activePins,
     recordedAt: now
   }));
 }

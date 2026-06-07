@@ -1028,6 +1028,32 @@ textarea:focus {
   margin: 0 auto;
 }
 
+.score-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.score-tab {
+  min-width: 0;
+  min-height: 40px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.score-tab--active {
+  background: var(--green);
+  color: #fff;
+}
+
 .score-chart-card,
 .leaderboard-section {
   display: grid;
