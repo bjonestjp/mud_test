@@ -389,7 +389,10 @@ export default function App() {
           ) : (
             <div className="selected-shop-label">
               <ColorDot color={selectedPin.ownerColor} />
-              <span>{selectedPin.name}</span>
+              <span className="selected-shop-copy">
+                <strong>{selectedPin.name}</strong>
+                <small>{selectedPin.ownerName}</small>
+              </span>
             </div>
           )}
           <button className="icon-button map-selection-dismiss" type="button" onClick={clearSelectedPin} title="Hide radius" aria-label="Hide radius">
