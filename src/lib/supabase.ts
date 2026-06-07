@@ -13,7 +13,8 @@ import type {
   LeaderboardRow,
   PlacePinInput,
   PlayerProfile,
-  RestockPinInput
+  RestockPinInput,
+  ScoreHistoryPoint
 } from "../types";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -89,6 +90,7 @@ class SupabaseGameAdapter implements GameAdapter {
         profile: null,
         pins: [],
         leaderboard: [],
+        scoreHistory: [],
         isDemoMode: false
       };
     }
@@ -100,11 +102,13 @@ class SupabaseGameAdapter implements GameAdapter {
       this.fetchPins(),
       this.fetchLeaderboard()
     ]);
+    const scoreHistory = await this.fetchScoreHistory(leaderboard);
 
     return {
       profile,
       pins,
       leaderboard,
+      scoreHistory,
       isDemoMode: false
     };
   }
@@ -186,6 +190,21 @@ class SupabaseGameAdapter implements GameAdapter {
       activePins: Number(row.active_pins),
       lifetimeIncome: Number(row.lifetime_income)
     }));
+  }
+
+  private async fetchScoreHistory(leaderboard: LeaderboardRow[]): Promise<ScoreHistoryPoint[]> {
+    const { data, error } = await this.supabase.rpc("get_score_history");
+
+    if (error) {
+      const message = error.message ?? "";
+      if (error.code === "PGRST202" || message.includes("get_score_history")) {
+        return currentScoreHistoryFromLeaderboard(leaderboard);
+      }
+      throw error;
+    }
+
+    const history = (data ?? []).map(mapScoreHistoryRow);
+    return history.length > 0 ? history : currentScoreHistoryFromLeaderboard(leaderboard);
   }
 
   private async fetchPinsDirectly(): Promise<GamePin[]> {
@@ -335,6 +354,27 @@ function mapProfileRow(row: Record<string, unknown>, fallbackKey: string): Playe
     pointsBalance: Number(row.points_balance),
     playerColor: safeColor(row.player_color, fallbackKey)
   };
+}
+
+function mapScoreHistoryRow(row: Record<string, unknown>): ScoreHistoryPoint {
+  return {
+    playerId: String(row.player_id),
+    displayName: String(row.display_name),
+    playerColor: safeColor(row.player_color, String(row.player_id)),
+    pointsBalance: Number(row.points_balance),
+    recordedAt: String(row.recorded_at)
+  };
+}
+
+function currentScoreHistoryFromLeaderboard(leaderboard: LeaderboardRow[]): ScoreHistoryPoint[] {
+  const now = new Date().toISOString();
+  return leaderboard.map((row) => ({
+    playerId: row.playerId,
+    displayName: row.displayName,
+    playerColor: row.playerColor,
+    pointsBalance: row.pointsBalance,
+    recordedAt: now
+  }));
 }
 
 function toAuthEmail(usernameOrEmail: string): string {

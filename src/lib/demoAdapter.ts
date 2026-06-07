@@ -12,7 +12,8 @@ import type {
   LeaderboardRow,
   PlacePinInput,
   PlayerProfile,
-  RestockPinInput
+  RestockPinInput,
+  ScoreHistoryPoint
 } from "../types";
 
 const STORAGE_KEY = "coffee-pin-demo-state-v1";
@@ -181,6 +182,7 @@ export class DemoAdapter implements GameAdapter {
       profile: this.store.profile,
       pins: this.store.pins,
       leaderboard: this.store.leaderboard,
+      scoreHistory: buildDemoScoreHistory(this.store),
       isDemoMode: true
     };
   }
@@ -427,6 +429,29 @@ function buildLeaderboard(store: DemoStore): LeaderboardRow[] {
   }
 
   return [...players.values()].sort((a, b) => b.pointsBalance - a.pointsBalance);
+}
+
+function buildDemoScoreHistory(store: DemoStore): ScoreHistoryPoint[] {
+  const now = new Date();
+  const leaderboard = store.leaderboard.length > 0 ? store.leaderboard : buildLeaderboard(store);
+
+  return leaderboard.flatMap((row, playerIndex) => {
+    const points = Math.max(0, row.pointsBalance);
+    const drift = 34 + playerIndex * 9;
+    const wobble = playerIndex % 2 === 0 ? 18 : -12;
+
+    return [5, 4, 3, 2, 1, 0].map((daysAgo, pointIndex) => {
+      const baseline = Math.max(0, points - drift * daysAgo + wobble * Math.sin(pointIndex + playerIndex));
+
+      return {
+        playerId: row.playerId,
+        displayName: row.displayName,
+        playerColor: row.playerColor,
+        pointsBalance: daysAgo === 0 ? points : Number(baseline.toFixed(2)),
+        recordedAt: addHours(now, -24 * daysAgo).toISOString()
+      };
+    });
+  });
 }
 
 function estimateDemoBusyScore(lat: number, lng: number): number {

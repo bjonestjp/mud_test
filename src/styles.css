@@ -894,6 +894,129 @@ input:focus {
   margin: 0 auto;
 }
 
+.scores-stack {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.score-chart-card,
+.leaderboard-section {
+  display: grid;
+  gap: 10px;
+}
+
+.score-chart-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.score-chart-card__header,
+.panel-subtitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.score-chart-card__header h3,
+.panel-subtitle h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.score-chart-card__header span {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.score-chart-frame {
+  overflow: hidden;
+  border: 1px solid rgba(28, 44, 39, 0.1);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fbfdfb 0%, #eef5f0 100%);
+}
+
+.score-chart {
+  display: block;
+  width: 100%;
+  min-height: 230px;
+}
+
+.score-chart__grid {
+  stroke: rgba(28, 44, 39, 0.12);
+  stroke-width: 1;
+}
+
+.score-chart__axis {
+  stroke: rgba(28, 44, 39, 0.22);
+  stroke-width: 1.2;
+}
+
+.score-chart__axis-label {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.score-chart__line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.4;
+  filter: drop-shadow(0 2px 2px rgba(23, 33, 30, 0.12));
+}
+
+.score-chart__point {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.score-chart-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.score-chart-legend__item {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(28, 44, 39, 0.1);
+  border-radius: 8px;
+  background: rgba(247, 250, 246, 0.82);
+}
+
+.score-chart-legend__item span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-chart-legend__item strong {
+  flex-shrink: 0;
+  color: var(--green-dark);
+  font-size: 12px;
+}
+
 .list-row {
   width: 100%;
   min-height: 42px;

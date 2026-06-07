@@ -9,6 +9,7 @@ The first migration creates the MVP database, game RPCs, and Row Level Security 
 - `settle_player_income()`
 - `get_visible_pins()`
 - `get_leaderboard()`
+- `get_score_history()`
 
 The game uses `pin_income_periods` so passive income remains historically correct when nearby pins appear, go out of stock, or get restocked.
 

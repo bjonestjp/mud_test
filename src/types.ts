@@ -42,10 +42,19 @@ export interface LeaderboardRow {
   lifetimeIncome: number;
 }
 
+export interface ScoreHistoryPoint {
+  playerId: string;
+  displayName: string;
+  playerColor: string;
+  pointsBalance: number;
+  recordedAt: string;
+}
+
 export interface GameState {
   profile: PlayerProfile | null;
   pins: GamePin[];
   leaderboard: LeaderboardRow[];
+  scoreHistory: ScoreHistoryPoint[];
   isDemoMode: boolean;
 }
 

@@ -24,12 +24,13 @@ import {
   pointsToWholeTokens
 } from "./lib/constants";
 import { requestCurrentLocation } from "./lib/geo";
-import type { GamePin, GameState, LocationReading, PinType } from "./types";
+import type { GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint } from "./types";
 
 const EMPTY_STATE: GameState = {
   profile: null,
   pins: [],
   leaderboard: [],
+  scoreHistory: [],
   isDemoMode: false
 };
 
@@ -480,7 +481,7 @@ export default function App() {
             ) : null}
 
             {activePanel === "leaderboard" ? (
-              <LeaderboardPanel leaderboard={game.leaderboard} />
+              <ScoresPanel leaderboard={game.leaderboard} scoreHistory={game.scoreHistory} />
             ) : null}
           </div>
         </section>
@@ -687,23 +688,125 @@ function YourShopsPanel({
   );
 }
 
-function LeaderboardPanel({
-  leaderboard
+function ScoresPanel({
+  leaderboard,
+  scoreHistory
 }: {
   leaderboard: GameState["leaderboard"];
+  scoreHistory: GameState["scoreHistory"];
 }) {
   return (
-    <div className="stack-list">
-      {leaderboard.map((row, index) => (
-        <div className="list-row list-row--static" key={row.playerId}>
-          <span className="list-row__label">
-            <ColorDot color={row.playerColor} />
-            {index + 1}. {row.displayName}
-          </span>
-          <strong>{formatTokenAmount(row.pointsBalance)}</strong>
+    <div className="scores-stack">
+      <ScoreHistoryChart leaderboard={leaderboard} scoreHistory={scoreHistory} />
+      <section className="leaderboard-section" aria-label="Leaderboard">
+        <div className="panel-subtitle">
+          <h3>Leaderboard</h3>
         </div>
-      ))}
+        <div className="stack-list">
+          {leaderboard.map((row, index) => (
+            <div className="list-row list-row--static" key={row.playerId}>
+              <span className="list-row__label">
+                <ColorDot color={row.playerColor} />
+                {index + 1}. {row.displayName}
+              </span>
+              <strong>{formatTokenAmount(row.pointsBalance)}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
+  );
+}
+
+function ScoreHistoryChart({
+  leaderboard,
+  scoreHistory
+}: {
+  leaderboard: LeaderboardRow[];
+  scoreHistory: ScoreHistoryPoint[];
+}) {
+  const chart = useMemo(
+    () => buildScoreChartModel(leaderboard, scoreHistory),
+    [leaderboard, scoreHistory]
+  );
+
+  if (!chart) {
+    return (
+      <section className="score-chart-card" aria-label="Score history">
+        <div className="score-chart-card__header">
+          <h3>Score History</h3>
+        </div>
+        <p className="muted">No scores yet.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="score-chart-card" aria-label="Score history">
+      <div className="score-chart-card__header">
+        <h3>Score History</h3>
+        <span>{formatDateRange(chart.minTime, chart.maxTime)}</span>
+      </div>
+      <div className="score-chart-frame">
+        <svg className="score-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Player score history">
+          {chart.yTicks.map((tick) => (
+            <g key={tick.value}>
+              <line
+                className="score-chart__grid"
+                x1={chart.plotLeft}
+                x2={chart.plotRight}
+                y1={tick.y}
+                y2={tick.y}
+              />
+              <text className="score-chart__axis-label" x={chart.plotLeft - 8} y={tick.y + 4} textAnchor="end">
+                {formatAxisTokenLabel(tick.value)}
+              </text>
+            </g>
+          ))}
+          <line
+            className="score-chart__axis"
+            x1={chart.plotLeft}
+            x2={chart.plotRight}
+            y1={chart.plotBottom}
+            y2={chart.plotBottom}
+          />
+          <text className="score-chart__axis-label" x={chart.plotLeft} y={chart.height - 8} textAnchor="start">
+            {formatChartTickDate(chart.minTime)}
+          </text>
+          <text className="score-chart__axis-label" x={chart.plotRight} y={chart.height - 8} textAnchor="end">
+            {formatChartTickDate(chart.maxTime)}
+          </text>
+          {chart.series.map((series) => (
+            <g key={series.playerId}>
+              {series.path ? (
+                <path className="score-chart__line" d={series.path} stroke={series.playerColor} />
+              ) : null}
+              {series.points.map((point, pointIndex) => (
+                <circle
+                  className="score-chart__point"
+                  key={`${series.playerId}-${point.time}-${pointIndex}`}
+                  cx={point.x}
+                  cy={point.y}
+                  r={point.isLatest ? 4.2 : 2.4}
+                  fill={series.playerColor}
+                />
+              ))}
+            </g>
+          ))}
+        </svg>
+      </div>
+      <div className="score-chart-legend">
+        {chart.series.map((series) => (
+          <div className="score-chart-legend__item" key={series.playerId}>
+            <span>
+              <ColorDot color={series.playerColor} />
+              {series.displayName}
+            </span>
+            <strong>{formatTokenAmount(series.latestPoints)}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -714,7 +817,7 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
     case "shops":
       return "Your Shops";
     case "leaderboard":
-      return "Leaderboard";
+      return "Scores";
   }
 }
 
@@ -748,6 +851,181 @@ function PlayerSummary({
 function formatTokenAmount(points: number): string {
   const tokens = pointsToWholeTokens(points);
   return `${tokens} ${tokens === 1 ? "token" : "tokens"}`;
+}
+
+const SCORE_CHART_WIDTH = 640;
+const SCORE_CHART_HEIGHT = 280;
+const SCORE_CHART_PLOT = {
+  left: 46,
+  right: 620,
+  top: 18,
+  bottom: 238
+};
+
+interface ScoreChartPoint {
+  time: number;
+  pointsBalance: number;
+  x: number;
+  y: number;
+  isLatest: boolean;
+}
+
+interface ScoreChartSeries {
+  playerId: string;
+  displayName: string;
+  playerColor: string;
+  latestPoints: number;
+  points: ScoreChartPoint[];
+  path: string;
+}
+
+interface ScoreChartModel {
+  width: number;
+  height: number;
+  plotLeft: number;
+  plotRight: number;
+  plotBottom: number;
+  minTime: number;
+  maxTime: number;
+  yTicks: Array<{ value: number; y: number }>;
+  series: ScoreChartSeries[];
+}
+
+function buildScoreChartModel(
+  leaderboard: LeaderboardRow[],
+  history: ScoreHistoryPoint[]
+): ScoreChartModel | null {
+  if (leaderboard.length === 0) return null;
+
+  const now = Date.now();
+  const historyByPlayer = new Map<string, Array<{ time: number; pointsBalance: number }>>();
+
+  for (const point of history) {
+    const time = new Date(point.recordedAt).getTime();
+    const pointsBalance = Number(point.pointsBalance);
+    if (!Number.isFinite(time) || !Number.isFinite(pointsBalance)) continue;
+
+    const points = historyByPlayer.get(point.playerId) ?? [];
+    points.push({ time, pointsBalance });
+    historyByPlayer.set(point.playerId, points);
+  }
+
+  const rawSeries = leaderboard.map((row) => {
+    const points = [...(historyByPlayer.get(row.playerId) ?? [])].sort((a, b) => a.time - b.time);
+    const latest = points[points.length - 1];
+
+    if (!latest) {
+      points.push({ time: now, pointsBalance: row.pointsBalance });
+    } else if (
+      Math.abs(latest.pointsBalance - row.pointsBalance) > 0.01 ||
+      now - latest.time > 60_000
+    ) {
+      points.push({ time: now, pointsBalance: row.pointsBalance });
+    }
+
+    if (points.length === 1) {
+      points.unshift({
+        time: points[0].time - 6 * 3_600_000,
+        pointsBalance: points[0].pointsBalance
+      });
+    }
+
+    return {
+      playerId: row.playerId,
+      displayName: row.displayName,
+      playerColor: row.playerColor,
+      latestPoints: row.pointsBalance,
+      rawPoints: points
+    };
+  });
+
+  const allPoints = rawSeries.flatMap((series) => series.rawPoints);
+  if (allPoints.length === 0) return null;
+
+  let minTime = Math.min(...allPoints.map((point) => point.time));
+  let maxTime = Math.max(...allPoints.map((point) => point.time));
+  if (minTime === maxTime) {
+    minTime -= 6 * 3_600_000;
+    maxTime += 6 * 3_600_000;
+  }
+
+  const minPoints = Math.min(0, ...allPoints.map((point) => point.pointsBalance));
+  const maxPoints = Math.max(...allPoints.map((point) => point.pointsBalance), GAME_CONFIG.tokenUnit);
+  const padding = Math.max(GAME_CONFIG.tokenUnit, (maxPoints - minPoints) * 0.12);
+  const yMin = Math.max(0, minPoints - padding);
+  const yMax = maxPoints + padding;
+
+  const xForTime = (time: number) =>
+    SCORE_CHART_PLOT.left +
+    ((time - minTime) / Math.max(1, maxTime - minTime)) *
+      (SCORE_CHART_PLOT.right - SCORE_CHART_PLOT.left);
+  const yForPoints = (points: number) =>
+    SCORE_CHART_PLOT.bottom -
+    ((points - yMin) / Math.max(1, yMax - yMin)) *
+      (SCORE_CHART_PLOT.bottom - SCORE_CHART_PLOT.top);
+
+  const series = rawSeries.map((raw) => {
+    const plottedPoints = raw.rawPoints.map((point, index) => ({
+      ...point,
+      x: xForTime(point.time),
+      y: yForPoints(point.pointsBalance),
+      isLatest: index === raw.rawPoints.length - 1
+    }));
+
+    return {
+      playerId: raw.playerId,
+      displayName: raw.displayName,
+      playerColor: raw.playerColor,
+      latestPoints: raw.latestPoints,
+      points: plottedPoints,
+      path: plottedPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ")
+    };
+  });
+
+  return {
+    width: SCORE_CHART_WIDTH,
+    height: SCORE_CHART_HEIGHT,
+    plotLeft: SCORE_CHART_PLOT.left,
+    plotRight: SCORE_CHART_PLOT.right,
+    plotBottom: SCORE_CHART_PLOT.bottom,
+    minTime,
+    maxTime,
+    yTicks: buildScoreChartTicks(yMin, yMax, yForPoints),
+    series
+  };
+}
+
+function buildScoreChartTicks(
+  minPoints: number,
+  maxPoints: number,
+  yForPoints: (points: number) => number
+): Array<{ value: number; y: number }> {
+  return [0, 0.33, 0.66, 1].map((ratio) => {
+    const value = minPoints + (maxPoints - minPoints) * ratio;
+    return {
+      value,
+      y: yForPoints(value)
+    };
+  });
+}
+
+function formatAxisTokenLabel(points: number): string {
+  const tokens = points / GAME_CONFIG.tokenUnit;
+  if (Math.abs(tokens) >= 10) return Math.round(tokens).toString();
+  return tokens.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatChartTickDate(time: number): string {
+  return new Date(time).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function formatDateRange(minTime: number, maxTime: number): string {
+  const start = formatChartTickDate(minTime);
+  const end = formatChartTickDate(maxTime);
+  return start === end ? start : `${start} - ${end}`;
 }
 
 function TokenProgressRing({

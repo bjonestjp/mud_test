@@ -47,6 +47,7 @@ The frontend calls these Supabase RPCs:
 - `restock_pin`
 - `get_visible_pins`
 - `get_leaderboard`
+- `get_score_history`
 
 ## Current MVP Scope
 
