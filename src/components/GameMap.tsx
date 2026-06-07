@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
 import { competitionRadiusForLevel, EDINBURGH_CENTER } from "../lib/constants";
 import { competitionPressure, distanceMeters } from "../lib/geo";
-import type { GamePin, LocationReading } from "../types";
+import type { DemandEvent, GamePin, LocationReading } from "../types";
 
 interface GameMapProps {
   pins: GamePin[];
@@ -10,8 +10,11 @@ interface GameMapProps {
   playerLocation: LocationReading | null;
   focusLocation: LocationFocus | null;
   buildPreview: BuildPreview | null;
+  demandEvents: DemandEvent[];
   selectedPinId: string | null;
+  nowMs: number;
   isDemoMode: boolean;
+  isChoosingDemandEventCenter: boolean;
   onSelectPin: (pin: GamePin) => void;
   onMapCenterChange: (center: { lat: number; lng: number }) => void;
 }
@@ -46,6 +49,9 @@ const SHINGLE_RING_STEP_PX = 11;
 const COMPETITION_RADIUS_SOURCE_ID = "competition-radius";
 const COMPETITION_RADIUS_FILL_LAYER_ID = "competition-radius-fill";
 const COMPETITION_RADIUS_LINE_LAYER_ID = "competition-radius-line";
+const DEMAND_EVENT_AREA_SOURCE_ID = "demand-event-area";
+const DEMAND_EVENT_AREA_FILL_LAYER_ID = "demand-event-area-fill";
+const DEMAND_EVENT_AREA_LINE_LAYER_ID = "demand-event-area-line";
 const EMPTY_RADIUS_DATA: Parameters<GeoJSONSource["setData"]>[0] = {
   type: "FeatureCollection",
   features: []
@@ -57,8 +63,11 @@ export function GameMap({
   playerLocation,
   focusLocation,
   buildPreview,
+  demandEvents,
   selectedPinId,
+  nowMs,
   isDemoMode,
+  isChoosingDemandEventCenter,
   onSelectPin,
   onMapCenterChange
 }: GameMapProps) {
@@ -67,6 +76,7 @@ export function GameMap({
   const markersRef = useRef<MarkerEntry[]>([]);
   const playerLocationMarkerRef = useRef<Marker | null>(null);
   const buildPreviewMarkerRef = useRef<Marker | null>(null);
+  const demandEventLabelMarkersRef = useRef<Marker[]>([]);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
   const selectedPin = useMemo(
     () => visiblePins.find((pin) => pin.id === selectedPinId) ?? null,
@@ -115,6 +125,8 @@ export function GameMap({
       playerLocationMarkerRef.current = null;
       buildPreviewMarkerRef.current?.remove();
       buildPreviewMarkerRef.current = null;
+      demandEventLabelMarkersRef.current.forEach((marker) => marker.remove());
+      demandEventLabelMarkersRef.current = [];
       map.remove();
       mapRef.current = null;
     };
@@ -227,6 +239,47 @@ export function GameMap({
     const map = mapRef.current;
     if (!map) return;
 
+    const updateDemandEventLayers = () => {
+      ensureDemandEventLayers(map);
+      const areaSource = map.getSource(DEMAND_EVENT_AREA_SOURCE_ID) as GeoJSONSource | undefined;
+
+      areaSource?.setData(createDemandEventAreaFeatureCollection(demandEvents));
+      demandEventLabelMarkersRef.current.forEach((marker) => marker.remove());
+      demandEventLabelMarkersRef.current = demandEvents.filter(hasValidCoordinate).map((event) => {
+        const element = document.createElement("div");
+        const title = document.createElement("strong");
+        const detail = document.createElement("small");
+
+        element.className = "demand-event-label-marker";
+        title.textContent = event.label;
+        detail.textContent = formatDemandEventRemaining(event.endsAt, nowMs);
+        element.append(title, detail);
+
+        return new maplibregl.Marker({
+          element,
+          anchor: "bottom",
+          offset: [0, -16]
+        })
+          .setLngLat([event.lng, event.lat])
+          .addTo(map);
+      });
+    };
+
+    if (map.isStyleLoaded()) {
+      updateDemandEventLayers();
+      return;
+    }
+
+    map.once("load", updateDemandEventLayers);
+    return () => {
+      map.off("load", updateDemandEventLayers);
+    };
+  }, [demandEvents, nowMs]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
     if (!playerLocation || !hasValidCoordinate(playerLocation)) {
       playerLocationMarkerRef.current?.remove();
       playerLocationMarkerRef.current = null;
@@ -306,7 +359,7 @@ export function GameMap({
   return (
     <div className="map-shell">
       <div ref={containerRef} className="map-canvas" />
-      {isDemoMode ? <div className="map-crosshair" aria-hidden="true" /> : null}
+      {isDemoMode || isChoosingDemandEventCenter ? <div className="map-crosshair" aria-hidden="true" /> : null}
     </div>
   );
 }
@@ -340,6 +393,41 @@ function ensureCompetitionRadiusLayers(map: Map): void {
         "line-color": "#2f5f9f",
         "line-opacity": 0.68,
         "line-width": 2
+      }
+    });
+  }
+}
+
+function ensureDemandEventLayers(map: Map): void {
+  if (!map.getSource(DEMAND_EVENT_AREA_SOURCE_ID)) {
+    map.addSource(DEMAND_EVENT_AREA_SOURCE_ID, {
+      type: "geojson",
+      data: EMPTY_RADIUS_DATA
+    });
+  }
+
+  if (!map.getLayer(DEMAND_EVENT_AREA_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: DEMAND_EVENT_AREA_FILL_LAYER_ID,
+      type: "fill",
+      source: DEMAND_EVENT_AREA_SOURCE_ID,
+      paint: {
+        "fill-color": "#f0ae49",
+        "fill-opacity": 0.22
+      }
+    });
+  }
+
+  if (!map.getLayer(DEMAND_EVENT_AREA_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: DEMAND_EVENT_AREA_LINE_LAYER_ID,
+      type: "line",
+      source: DEMAND_EVENT_AREA_SOURCE_ID,
+      paint: {
+        "line-color": "#b7791f",
+        "line-opacity": 0.82,
+        "line-width": 2,
+        "line-dasharray": [1.5, 1.2]
       }
     });
   }
@@ -445,6 +533,35 @@ function createRadiusFeatureCollection(
       }
     ]
   };
+}
+
+function createDemandEventAreaFeatureCollection(
+  events: DemandEvent[]
+): Parameters<GeoJSONSource["setData"]>[0] {
+  return {
+    type: "FeatureCollection",
+    features: events.filter(hasValidCoordinate).map((event) => ({
+      type: "Feature",
+      properties: {
+        id: event.id
+      },
+      geometry: {
+        type: "Polygon",
+        coordinates: [createRadiusCoordinates(event, event.radiusM)]
+      }
+    }))
+  };
+}
+
+function formatDemandEventRemaining(endsAt: string, nowMs: number): string {
+  const diffMs = new Date(endsAt).getTime() - nowMs;
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "ending now";
+
+  const minutes = Math.ceil(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}m remaining`;
+
+  const hours = Math.ceil(minutes / 60);
+  return `${hours}h remaining`;
 }
 
 function createRadiusCoordinates(

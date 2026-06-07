@@ -15,7 +15,8 @@ import {
   Timer,
   Trophy,
   Users,
-  X
+  X,
+  Zap
 } from "lucide-react";
 import { GameMap } from "./components/GameMap";
 import type { LocationFocus } from "./components/GameMap";
@@ -28,7 +29,7 @@ import {
   pointsToWholeTokens
 } from "./lib/constants";
 import { requestCurrentLocation } from "./lib/geo";
-import type { Bulletin, GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint } from "./types";
+import type { Bulletin, DemandEvent, GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint } from "./types";
 
 const EMPTY_STATE: GameState = {
   profile: null,
@@ -36,10 +37,11 @@ const EMPTY_STATE: GameState = {
   leaderboard: [],
   scoreHistory: [],
   bulletins: [],
+  demandEvents: [],
   isDemoMode: false
 };
 
-type ActivePanel = "build" | "shops" | "leaderboard" | "messages" | "admin" | "bulletin" | null;
+type ActivePanel = "build" | "shops" | "leaderboard" | "messages" | "admin" | "bulletin" | "event" | null;
 
 interface Notice {
   message: string;
@@ -59,6 +61,11 @@ interface PendingBuild {
   label: string;
   costPoints: number;
   location: LocationReading;
+}
+
+interface EventCenter {
+  lat: number;
+  lng: number;
 }
 
 const SHOP_TYPES: ShopTypeOption[] = [
@@ -88,6 +95,10 @@ export default function App() {
   const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
   const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
   const [pendingRadiusUpgradePinId, setPendingRadiusUpgradePinId] = useState<string | null>(null);
+  const [isChoosingDemandEventCenter, setIsChoosingDemandEventCenter] = useState(false);
+  const [pendingDemandEventCenter, setPendingDemandEventCenter] = useState<EventCenter | null>(null);
+  const [eventDurationHours, setEventDurationHours] = useState("2");
+  const [eventRadiusM, setEventRadiusM] = useState("300");
   const [bulletinTitle, setBulletinTitle] = useState("");
   const [bulletinBody, setBulletinBody] = useState("");
   const [bulletinImageFile, setBulletinImageFile] = useState<File | null>(null);
@@ -111,6 +122,7 @@ export default function App() {
   const pendingDeleteBulletin = game.bulletins.find((bulletin) => bulletin.id === pendingDeleteBulletinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
+  const activeDemandEvents = game.demandEvents.filter((event) => isDemandEventActive(event, nowMs));
 
   const run = useCallback(
     async (work: () => Promise<GameState | void>, success?: string) => {
@@ -279,6 +291,13 @@ export default function App() {
     setSelectedPinId(null);
   };
 
+  const closeActivePanel = () => {
+    if (activePanel === "event") {
+      setPendingDemandEventCenter(null);
+    }
+    setActivePanel(null);
+  };
+
   const cancelRestock = () => {
     setPendingRestockPinId(null);
   };
@@ -297,6 +316,30 @@ export default function App() {
   const startCreateBulletin = () => {
     clearBulletinForm();
     setActivePanel("bulletin");
+  };
+
+  const startDemandEventCenterSelection = () => {
+    setSelectedPinId(null);
+    setActivePanel(null);
+    setPendingDemandEventCenter(null);
+    setIsChoosingDemandEventCenter(true);
+    setNotice(null);
+  };
+
+  const cancelDemandEventCenterSelection = () => {
+    setIsChoosingDemandEventCenter(false);
+    setPendingDemandEventCenter(null);
+  };
+
+  const confirmDemandEventCenter = () => {
+    setPendingDemandEventCenter(mapCenter);
+    setIsChoosingDemandEventCenter(false);
+    setActivePanel("event");
+  };
+
+  const cancelDemandEventSetup = () => {
+    setPendingDemandEventCenter(null);
+    setActivePanel("admin");
   };
 
   const startEditBulletin = (bulletin: Bulletin) => {
@@ -384,6 +427,30 @@ export default function App() {
     }, "Bulletin deleted");
   };
 
+  const submitDemandEvent = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!pendingDemandEventCenter) return;
+
+    void run(async () => {
+      const durationHours = readBoundedNumber(eventDurationHours, "Duration", 0.25, 168);
+      const radiusM = readBoundedNumber(eventRadiusM, "Radius", 25, 5000);
+      const next = await adapter.beginDemandEvent({
+        lat: pendingDemandEventCenter.lat,
+        lng: pendingDemandEventCenter.lng,
+        durationHours,
+        radiusM
+      });
+
+      setPendingDemandEventCenter(null);
+      setActivePanel(null);
+      return next;
+    }, "Event started");
+  };
+
+  const endDemandEvent = (eventId: string) => {
+    void run(() => adapter.endDemandEvent({ eventId }), "Event ended");
+  };
+
   if (!game.profile && !game.isDemoMode) {
     return (
       <main className="auth-screen">
@@ -437,8 +504,11 @@ export default function App() {
         playerLocation={playerLocation}
         focusLocation={focusLocation}
         buildPreview={pendingBuild}
+        demandEvents={activeDemandEvents}
         selectedPinId={selectedPinId}
+        nowMs={nowMs}
         isDemoMode={game.isDemoMode}
+        isChoosingDemandEventCenter={isChoosingDemandEventCenter}
         onSelectPin={(pin) => {
           setSelectedPinId(pin.id);
         }}
@@ -468,14 +538,14 @@ export default function App() {
         </div>
       </header>
 
-      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingDeleteBulletin ? (
+      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingDeleteBulletin && !isChoosingDemandEventCenter ? (
         <button className="admin-map-button" type="button" onClick={() => setActivePanel("admin")}>
           <ShieldCheck size={16} />
           Admin
         </button>
       ) : null}
 
-      {selectedPin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin ? (
+      {selectedPin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !isChoosingDemandEventCenter ? (
         <section className="map-selection-card" aria-label="Selected shop">
           {selectedOwnPin ? (
             <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
@@ -503,6 +573,13 @@ export default function App() {
           isBusy={isBusy}
           onConfirm={confirmBuild}
           onCancel={cancelBuild}
+        />
+      ) : isChoosingDemandEventCenter ? (
+        <EventCenterConfirmBar
+          center={mapCenter}
+          isBusy={isBusy}
+          onConfirm={confirmDemandEventCenter}
+          onCancel={cancelDemandEventCenterSelection}
         />
       ) : (
         <nav className="bottom-actions" aria-label="Game actions">
@@ -550,9 +627,10 @@ export default function App() {
               {activePanel === "leaderboard" ? <Trophy size={20} /> : null}
               {activePanel === "messages" ? <MessageSquare size={20} /> : null}
               {activePanel === "admin" || activePanel === "bulletin" ? <ShieldCheck size={20} /> : null}
+              {activePanel === "event" ? <Zap size={20} /> : null}
               <h2>{getPanelTitle(activePanel)}</h2>
             </div>
-            <button className="icon-button" type="button" onClick={() => setActivePanel(null)} title="Close">
+            <button className="icon-button" type="button" onClick={closeActivePanel} title="Close">
               <X size={20} />
             </button>
           </div>
@@ -600,7 +678,14 @@ export default function App() {
             ) : null}
 
             {activePanel === "admin" ? (
-              <AdminPanel onCreateBulletin={startCreateBulletin} />
+              <AdminPanel
+                demandEvents={activeDemandEvents}
+                nowMs={nowMs}
+                isBusy={isBusy}
+                onCreateBulletin={startCreateBulletin}
+                onBeginEvent={startDemandEventCenterSelection}
+                onEndEvent={endDemandEvent}
+              />
             ) : null}
 
             {activePanel === "bulletin" ? (
@@ -616,6 +701,19 @@ export default function App() {
                 onImageChange={setBulletinImageFile}
                 onBack={() => setActivePanel(editingBulletin ? "messages" : "admin")}
                 onSubmit={submitBulletin}
+              />
+            ) : null}
+
+            {activePanel === "event" && pendingDemandEventCenter ? (
+              <DemandEventPanel
+                center={pendingDemandEventCenter}
+                durationHours={eventDurationHours}
+                radiusM={eventRadiusM}
+                isBusy={isBusy}
+                onDurationHoursChange={setEventDurationHours}
+                onRadiusMChange={setEventRadiusM}
+                onBack={cancelDemandEventSetup}
+                onSubmit={submitDemandEvent}
               />
             ) : null}
           </div>
@@ -776,6 +874,37 @@ function BuildConfirmBar({
   );
 }
 
+function EventCenterConfirmBar({
+  center,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  center: EventCenter;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="build-confirm-bar event-confirm-bar">
+      <div>
+        <span>Double demand zone</span>
+        <strong>Confirm map center</strong>
+        <small>{formatCoordinatePair(center)}</small>
+      </div>
+      <div className="build-confirm-actions">
+        <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+          Cancel
+        </button>
+        <button className="primary-action" type="button" onClick={onConfirm} disabled={isBusy}>
+          <MapPin size={18} />
+          Confirm
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function YourShopsPanel({
   pins,
   selectedPin,
@@ -910,7 +1039,21 @@ function MessagesPanel({
   );
 }
 
-function AdminPanel({ onCreateBulletin }: { onCreateBulletin: () => void }) {
+function AdminPanel({
+  demandEvents,
+  nowMs,
+  isBusy,
+  onCreateBulletin,
+  onBeginEvent,
+  onEndEvent
+}: {
+  demandEvents: DemandEvent[];
+  nowMs: number;
+  isBusy: boolean;
+  onCreateBulletin: () => void;
+  onBeginEvent: () => void;
+  onEndEvent: (eventId: string) => void;
+}) {
   return (
     <div className="admin-action-list">
       <button className="shop-type-button" type="button" onClick={onCreateBulletin}>
@@ -920,7 +1063,101 @@ function AdminPanel({ onCreateBulletin }: { onCreateBulletin: () => void }) {
         </span>
         <Send size={20} />
       </button>
+      <button className="shop-type-button" type="button" onClick={onBeginEvent}>
+        <span>
+          <strong>Begin Event</strong>
+          <small>Create a timed double income zone on the map.</small>
+        </span>
+        <Zap size={20} />
+      </button>
+      {demandEvents.length > 0 ? (
+        <section className="admin-event-list" aria-label="Active events">
+          <div className="panel-subtitle">
+            <h3>Active Events</h3>
+          </div>
+          {demandEvents.map((event) => (
+            <div className="admin-event-row" key={event.id}>
+              <span>
+                <strong>{event.label}</strong>
+                <small>{formatDemandEventRemaining(event, nowMs)} · {formatRadiusMeters(event.radiusM)}</small>
+              </span>
+              <button className="danger-action" type="button" onClick={() => onEndEvent(event.id)} disabled={isBusy}>
+                End
+              </button>
+            </div>
+          ))}
+        </section>
+      ) : null}
     </div>
+  );
+}
+
+function DemandEventPanel({
+  center,
+  durationHours,
+  radiusM,
+  isBusy,
+  onDurationHoursChange,
+  onRadiusMChange,
+  onBack,
+  onSubmit
+}: {
+  center: EventCenter;
+  durationHours: string;
+  radiusM: string;
+  isBusy: boolean;
+  onDurationHoursChange: (value: string) => void;
+  onRadiusMChange: (value: string) => void;
+  onBack: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+}) {
+  return (
+    <form className="panel-stack event-form" onSubmit={onSubmit}>
+      <button className="text-action" type="button" onClick={onBack}>
+        Back
+      </button>
+      <div className="selected-build-type">
+        <span>
+          <strong>Double demand zone</strong>
+          <small>{formatCoordinatePair(center)}</small>
+        </span>
+        <b>2x</b>
+      </div>
+      <label className="field">
+        <span>Duration (hours)</span>
+        <input
+          value={durationHours}
+          type="number"
+          inputMode="decimal"
+          min="0.25"
+          max="168"
+          step="0.25"
+          onChange={(event) => onDurationHoursChange(event.target.value)}
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Radius (meters)</span>
+        <input
+          value={radiusM}
+          type="number"
+          inputMode="numeric"
+          min="25"
+          max="5000"
+          step="25"
+          onChange={(event) => onRadiusMChange(event.target.value)}
+          required
+        />
+      </label>
+      <div className="metric-row">
+        <span>Income</span>
+        <strong>2x inside zone</strong>
+      </div>
+      <button className="primary-action" type="submit" disabled={isBusy}>
+        <Zap size={18} />
+        Begin Event
+      </button>
+    </form>
   );
 }
 
@@ -1105,6 +1342,8 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
       return "Admin";
     case "bulletin":
       return "Bulletin";
+    case "event":
+      return "Begin Event";
   }
 }
 
@@ -1323,6 +1562,41 @@ function formatBulletinDate(value: string): string {
     month: "short",
     day: "numeric"
   });
+}
+
+function formatDemandEventRemaining(event: DemandEvent, nowMs: number): string {
+  const diffMs = new Date(event.endsAt).getTime() - nowMs;
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "Ending now";
+
+  const minutes = Math.ceil(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}m left`;
+
+  const hours = Math.ceil(minutes / 60);
+  if (hours <= 48) return `${hours}h left`;
+
+  return `${Math.ceil(hours / 24)}d left`;
+}
+
+function isDemandEventActive(event: DemandEvent, nowMs: number): boolean {
+  const startsAt = new Date(event.startsAt).getTime();
+  const endsAt = new Date(event.endsAt).getTime();
+
+  return (
+    !event.endedAt &&
+    Number.isFinite(startsAt) &&
+    Number.isFinite(endsAt) &&
+    startsAt <= nowMs &&
+    endsAt > nowMs
+  );
+}
+
+function formatRadiusMeters(radiusM: number): string {
+  if (radiusM >= 1000) return `${(radiusM / 1000).toFixed(radiusM % 1000 === 0 ? 0 : 1)}km`;
+  return `${Math.round(radiusM)}m`;
+}
+
+function formatCoordinatePair(center: EventCenter): string {
+  return `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`;
 }
 
 function TokenProgressRing({
@@ -1629,6 +1903,17 @@ function formatErrorMessage(error: unknown): string {
 function requireBulletinImageFile(file: File | null): File {
   if (!file) throw new Error("Add a bulletin image.");
   return file;
+}
+
+function readBoundedNumber(value: string, label: string, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} must be a number.`);
+  }
+  if (parsed < min || parsed > max) {
+    throw new Error(`${label} must be between ${min} and ${max}.`);
+  }
+  return parsed;
 }
 
 async function getFreshPlayerLocation(

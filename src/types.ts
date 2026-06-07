@@ -62,12 +62,25 @@ export interface Bulletin {
   publishedAt: string;
 }
 
+export interface DemandEvent {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  radiusM: number;
+  multiplier: number;
+  startsAt: string;
+  endsAt: string;
+  endedAt: string | null;
+}
+
 export interface GameState {
   profile: PlayerProfile | null;
   pins: GamePin[];
   leaderboard: LeaderboardRow[];
   scoreHistory: ScoreHistoryPoint[];
   bulletins: Bulletin[];
+  demandEvents: DemandEvent[];
   isDemoMode: boolean;
 }
 
@@ -113,6 +126,17 @@ export interface DeleteBulletinInput {
   bulletinId: string;
 }
 
+export interface BeginDemandEventInput {
+  lat: number;
+  lng: number;
+  radiusM: number;
+  durationHours: number;
+}
+
+export interface EndDemandEventInput {
+  eventId: string;
+}
+
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
@@ -125,4 +149,6 @@ export interface GameAdapter {
   createBulletin(input: CreateBulletinInput): Promise<GameState>;
   updateBulletin(input: UpdateBulletinInput): Promise<GameState>;
   deleteBulletin(input: DeleteBulletinInput): Promise<GameState>;
+  beginDemandEvent(input: BeginDemandEventInput): Promise<GameState>;
+  endDemandEvent(input: EndDemandEventInput): Promise<GameState>;
 }

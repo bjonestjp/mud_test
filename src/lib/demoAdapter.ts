@@ -6,9 +6,12 @@ import {
   getBusyLabel
 } from "./geo";
 import type {
+  BeginDemandEventInput,
   Bulletin,
   CreateBulletinInput,
   DeleteBulletinInput,
+  DemandEvent,
+  EndDemandEventInput,
   GameAdapter,
   GamePin,
   GameState,
@@ -58,6 +61,7 @@ interface DemoStore {
   pins: GamePin[];
   leaderboard: LeaderboardRow[];
   bulletins: Bulletin[];
+  demandEvents: DemandEvent[];
   lastSettledAt: string;
 }
 
@@ -210,6 +214,55 @@ export class DemoAdapter implements GameAdapter {
     return this.state();
   }
 
+  async beginDemandEvent(input: BeginDemandEventInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can begin events.");
+    if (!Number.isFinite(input.lat) || !Number.isFinite(input.lng)) {
+      throw new Error("Choose a valid event location.");
+    }
+    if (input.radiusM < 25 || input.radiusM > 5000) {
+      throw new Error("Event radius must be between 25m and 5000m.");
+    }
+    if (input.durationHours < 0.25 || input.durationHours > 168) {
+      throw new Error("Event duration must be between 0.25 and 168 hours.");
+    }
+
+    this.settleIncome();
+    const now = new Date();
+    this.store.demandEvents = [
+      {
+        id: crypto.randomUUID(),
+        label: "double demand zone",
+        lat: input.lat,
+        lng: input.lng,
+        radiusM: input.radiusM,
+        multiplier: 2,
+        startsAt: now.toISOString(),
+        endsAt: addHours(now, input.durationHours).toISOString(),
+        endedAt: null
+      },
+      ...this.store.demandEvents
+    ];
+    this.recalculatePins();
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async endDemandEvent(input: EndDemandEventInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can end events.");
+
+    const event = this.store.demandEvents.find((item) => item.id === input.eventId);
+    if (!event) throw new Error("Event was not found.");
+    if (event.endedAt) throw new Error("This event has already ended.");
+
+    this.settleIncome();
+    const now = new Date().toISOString();
+    event.endedAt = now;
+    event.endsAt = now;
+    this.recalculatePins();
+    saveStore(this.store);
+    return this.state();
+  }
+
   async restockPin(input: RestockPinInput): Promise<GameState> {
     this.settleIncome();
     const pin = this.store.pins.find((item) => item.id === input.pinId);
@@ -247,6 +300,7 @@ export class DemoAdapter implements GameAdapter {
       leaderboard: this.store.leaderboard,
       scoreHistory: buildDemoScoreHistory(this.store),
       bulletins: this.store.bulletins,
+      demandEvents: activeDemandEvents(this.store.demandEvents),
       isDemoMode: true
     };
   }
@@ -273,6 +327,7 @@ export class DemoAdapter implements GameAdapter {
 
   private recalculatePins(): void {
     const now = new Date();
+    this.store.demandEvents = activeDemandEvents(this.store.demandEvents, now);
     for (const pin of this.store.pins) {
       refreshPinStatus(pin, now);
     }
@@ -293,9 +348,11 @@ export class DemoAdapter implements GameAdapter {
         return sum + competitionPressure(distance, competitionRadiusForLevel(other.radiusLevel));
       }, 0);
 
+      const multiplier = demandMultiplierForPin(pin, this.store.demandEvents, now);
+
       pin.competitionPressure = Number(totalPressure.toFixed(3));
       pin.currentHourlyRate = Number(
-        (baseHourlyRate(pin.busyScore) / (1 + totalPressure)).toFixed(2)
+        ((baseHourlyRate(pin.busyScore) * multiplier) / (1 + totalPressure)).toFixed(2)
       );
     }
 
@@ -341,6 +398,7 @@ function createInitialStore(): DemoStore {
     pins,
     leaderboard: [],
     bulletins: [createDemoBulletin(now)],
+    demandEvents: [],
     lastSettledAt: now.toISOString()
   };
 
@@ -370,6 +428,7 @@ function normalizeStore(candidate: Partial<DemoStore>): DemoStore {
     pins: pins.map((pin, index) => normalizePin(pin ?? undefined, fallback.pins[index])),
     leaderboard: [],
     bulletins: normalizeBulletins(candidate.bulletins, fallback.bulletins),
+    demandEvents: normalizeDemandEvents(candidate.demandEvents),
     lastSettledAt: candidate.lastSettledAt || new Date().toISOString()
   };
 
@@ -443,6 +502,77 @@ function normalizeBulletin(candidate: Partial<Bulletin>): Bulletin | null {
     authorName: candidate.authorName || "You",
     publishedAt: candidate.publishedAt || new Date().toISOString()
   };
+}
+
+function normalizeDemandEvents(candidate: unknown): DemandEvent[] {
+  if (!Array.isArray(candidate)) return [];
+
+  return activeDemandEvents(
+    candidate
+      .map((event) => normalizeDemandEvent(event as Partial<DemandEvent>))
+      .filter((event): event is DemandEvent => event !== null)
+  );
+}
+
+function normalizeDemandEvent(candidate: Partial<DemandEvent>): DemandEvent | null {
+  if (!candidate || typeof candidate.id !== "string") return null;
+
+  const lat = Number(candidate.lat);
+  const lng = Number(candidate.lng);
+  const radiusM = Number(candidate.radiusM);
+  const multiplier = Number(candidate.multiplier);
+  const endsAt = candidate.endsAt || "";
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    !Number.isFinite(radiusM) ||
+    !Number.isFinite(multiplier) ||
+    Math.abs(lat) > 90 ||
+    Math.abs(lng) > 180 ||
+    radiusM <= 0 ||
+    multiplier <= 1 ||
+    Number.isNaN(new Date(endsAt).getTime())
+  ) {
+    return null;
+  }
+
+  return {
+    id: candidate.id,
+    label: candidate.label || "double demand zone",
+    lat,
+    lng,
+    radiusM,
+    multiplier,
+    startsAt: candidate.startsAt || new Date().toISOString(),
+    endsAt,
+    endedAt: candidate.endedAt ?? null
+  };
+}
+
+function activeDemandEvents(events: DemandEvent[], now = new Date()): DemandEvent[] {
+  const nowMs = now.getTime();
+
+  return events.filter((event) => {
+    const startsAt = new Date(event.startsAt).getTime();
+    const endsAt = new Date(event.endsAt).getTime();
+    return (
+      !event.endedAt &&
+      Number.isFinite(startsAt) &&
+      Number.isFinite(endsAt) &&
+      startsAt <= nowMs &&
+      endsAt > nowMs
+    );
+  });
+}
+
+function demandMultiplierForPin(pin: GamePin, events: DemandEvent[], now: Date): number {
+  const activeEvents = activeDemandEvents(events, now);
+
+  return activeEvents.reduce((multiplier, event) => {
+    if (distanceMeters(pin, event) > event.radiusM) return multiplier;
+    return Math.max(multiplier, event.multiplier);
+  }, 1);
 }
 
 function createDemoPin(

@@ -105,6 +105,33 @@ button:disabled {
   content: "";
 }
 
+.demand-event-label-marker {
+  display: grid;
+  min-width: 126px;
+  gap: 1px;
+  padding: 7px 9px;
+  border: 1px solid rgba(122, 74, 11, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.9);
+  box-shadow: 0 6px 18px rgba(87, 57, 18, 0.18);
+  color: #7a4a0b;
+  line-height: 1.1;
+  pointer-events: none;
+  text-align: center;
+}
+
+.demand-event-label-marker strong {
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: lowercase;
+}
+
+.demand-event-label-marker small {
+  color: #8a5b20;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .maplibregl-ctrl-bottom-left,
 .maplibregl-ctrl-bottom-right {
   bottom: calc(112px + env(safe-area-inset-bottom));
@@ -1063,11 +1090,59 @@ textarea:focus {
 
 .bulletin-list,
 .bulletin-form,
-.admin-action-list {
+.admin-action-list,
+.admin-event-list {
   display: grid;
   gap: 12px;
   max-width: 760px;
   margin: 0 auto;
+}
+
+.admin-event-list {
+  width: 100%;
+}
+
+.admin-event-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-event-row span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.admin-event-row strong,
+.admin-event-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-event-row strong {
+  color: var(--ink);
+}
+
+.admin-event-row small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-event-row .danger-action {
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.event-form {
+  max-width: 520px;
 }
 
 .bulletin-card {

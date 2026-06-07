@@ -52,6 +52,9 @@ The frontend calls these Supabase RPCs:
 - `create_bulletin`
 - `update_bulletin`
 - `delete_bulletin`
+- `get_demand_events`
+- `begin_demand_event`
+- `end_demand_event`
 
 ## Current MVP Scope
 
@@ -66,6 +69,7 @@ The frontend calls these Supabase RPCs:
 - 150m base competition radius, upgradeable once to 300m per shop
 - Player-coloured pins, with own pins and rival pins both competing
 - Admin-authored bulletin messages with images
+- Admin-created double demand zones that temporarily double income inside a map radius
 - Automatic passive income settlement
 - Immediate pin visibility
 - Demo-mode fallback when Supabase is not configured

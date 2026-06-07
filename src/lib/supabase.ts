@@ -7,9 +7,12 @@ import {
   getBusyLabel
 } from "./geo";
 import type {
+  BeginDemandEventInput,
   Bulletin,
   CreateBulletinInput,
   DeleteBulletinInput,
+  DemandEvent,
+  EndDemandEventInput,
   GameAdapter,
   GamePin,
   GameState,
@@ -97,17 +100,19 @@ class SupabaseGameAdapter implements GameAdapter {
         leaderboard: [],
         scoreHistory: [],
         bulletins: [],
+        demandEvents: [],
         isDemoMode: false
       };
     }
 
     await this.supabase.rpc("settle_player_income");
 
-    const [profile, pins, leaderboard, bulletins] = await Promise.all([
+    const [profile, pins, leaderboard, bulletins, demandEvents] = await Promise.all([
       this.fetchProfile(user.id),
       this.fetchPins(),
       this.fetchLeaderboard(),
-      this.fetchBulletins()
+      this.fetchBulletins(),
+      this.fetchDemandEvents()
     ]);
     const scoreHistory = await this.fetchScoreHistory(leaderboard);
 
@@ -117,6 +122,7 @@ class SupabaseGameAdapter implements GameAdapter {
       leaderboard,
       scoreHistory,
       bulletins,
+      demandEvents,
       isDemoMode: false
     };
   }
@@ -213,6 +219,27 @@ class SupabaseGameAdapter implements GameAdapter {
     return this.refresh();
   }
 
+  async beginDemandEvent(input: BeginDemandEventInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("begin_demand_event", {
+      p_lat: input.lat,
+      p_lng: input.lng,
+      p_radius_m: input.radiusM,
+      p_duration_hours: input.durationHours
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async endDemandEvent(input: EndDemandEventInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("end_demand_event", {
+      p_event_id: input.eventId
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
   private async fetchProfile(userId: string): Promise<PlayerProfile | null> {
     const withRole = await this.supabase
       .from("profiles")
@@ -295,6 +322,20 @@ class SupabaseGameAdapter implements GameAdapter {
     return (data ?? []).map((row: Record<string, unknown>) =>
       mapBulletinRow(row, this.publicBulletinImageUrl(String(row.image_path)))
     );
+  }
+
+  private async fetchDemandEvents(): Promise<DemandEvent[]> {
+    const { data, error } = await this.supabase.rpc("get_demand_events");
+
+    if (error) {
+      const message = error.message ?? "";
+      if (error.code === "PGRST202" || message.includes("get_demand_events")) {
+        return [];
+      }
+      throw error;
+    }
+
+    return (data ?? []).map(mapDemandEventRow).filter(isActiveDemandEvent);
   }
 
   private async uploadBulletinImage(file: File): Promise<string> {
@@ -490,6 +531,38 @@ function mapBulletinRow(row: Record<string, unknown>, imageUrl: string): Bulleti
     authorName: String(row.author_name),
     publishedAt: String(row.published_at)
   };
+}
+
+function mapDemandEventRow(row: Record<string, unknown>): DemandEvent {
+  return {
+    id: String(row.id),
+    label: String(row.label || "double demand zone"),
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    radiusM: Number(row.radius_m),
+    multiplier: Number(row.multiplier),
+    startsAt: String(row.starts_at),
+    endsAt: String(row.ends_at),
+    endedAt: row.ended_at ? String(row.ended_at) : null
+  };
+}
+
+function isActiveDemandEvent(event: DemandEvent): boolean {
+  const endsAt = new Date(event.endsAt).getTime();
+
+  return (
+    Number.isFinite(event.lat) &&
+    Number.isFinite(event.lng) &&
+    Number.isFinite(event.radiusM) &&
+    Number.isFinite(event.multiplier) &&
+    Math.abs(event.lat) <= 90 &&
+    Math.abs(event.lng) <= 180 &&
+    event.radiusM > 0 &&
+    event.multiplier > 1 &&
+    !event.endedAt &&
+    Number.isFinite(endsAt) &&
+    endsAt > Date.now()
+  );
 }
 
 function getRpcStringField(value: unknown, key: string): string | null {

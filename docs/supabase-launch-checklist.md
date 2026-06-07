@@ -29,6 +29,7 @@ The migration creates:
 - `pin_income_periods`
 - `currency_ledger`
 - `location_score_cache`
+- `demand_events`
 - Game RPCs
 - Row Level Security policies
 
