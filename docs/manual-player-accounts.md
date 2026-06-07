@@ -39,6 +39,22 @@ Username: maya
 Password: the-password-you-set
 ```
 
+## Make A Player An Admin
+
+After running the admin/bulletin migration, set an account's role manually:
+
+```sql
+update public.profiles
+set account_role = 'admin'
+where id = (
+  select id
+  from auth.users
+  where lower(email) = lower('maya@players.mudslingers.test')
+);
+```
+
+Admins can open the in-map Admin button and send bulletin messages to all players.
+
 ## Suggested Colours
 
 ```text

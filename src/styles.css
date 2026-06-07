@@ -307,6 +307,7 @@ button:disabled {
 .top-actions,
 .bottom-actions,
 .map-selection-card,
+.admin-map-button,
 .build-confirm-bar,
 .screen-panel,
 .auth-panel,
@@ -501,13 +502,28 @@ button:disabled {
   left: 16px;
   z-index: 4;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   max-width: 520px;
   margin: 0 auto;
   padding: 8px;
   border-radius: 8px;
   pointer-events: auto;
+}
+
+.admin-map-button {
+  position: absolute;
+  top: calc(82px + env(safe-area-inset-top));
+  right: 16px;
+  z-index: 4;
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--green-dark);
+  font-weight: 900;
 }
 
 .map-selection-card {
@@ -788,7 +804,20 @@ input {
   padding: 0 12px;
 }
 
-input:focus {
+textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+  padding: 12px;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
   border-color: var(--green);
   box-shadow: 0 0 0 3px rgba(33, 116, 92, 0.18);
 }
@@ -1016,6 +1045,101 @@ input:focus {
   font-size: 12px;
 }
 
+.bulletin-list,
+.bulletin-form,
+.admin-action-list {
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.bulletin-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.bulletin-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+}
+
+.bulletin-card__header h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bulletin-card__header span,
+.bulletin-card__body small {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.bulletin-card img,
+.bulletin-image-preview {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+}
+
+.bulletin-card__body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.bulletin-card__body p {
+  margin: 0;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.bulletin-form {
+  max-width: 680px;
+}
+
+.bulletin-form .primary-action {
+  width: 100%;
+}
+
+.bulletin-image-preview,
+.bulletin-image-empty {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.bulletin-image-preview {
+  aspect-ratio: 16 / 7;
+}
+
+.bulletin-image-empty {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  color: var(--muted);
+  background:
+    linear-gradient(90deg, rgba(33, 116, 92, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(33, 116, 92, 0.08) 1px, transparent 1px),
+    #fff;
+  background-size: 24px 24px;
+}
+
 .list-row {
   width: 100%;
   min-height: 42px;
@@ -1178,6 +1302,11 @@ input:focus {
     right: 10px;
     bottom: calc(10px + env(safe-area-inset-bottom));
     left: 10px;
+  }
+
+  .admin-map-button {
+    top: calc(70px + env(safe-area-inset-top));
+    right: 10px;
   }
 
   .map-selection-card {

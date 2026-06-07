@@ -6,6 +6,8 @@ import {
   getBusyLabel
 } from "./geo";
 import type {
+  Bulletin,
+  CreateBulletinInput,
   GameAdapter,
   GamePin,
   GameState,
@@ -47,11 +49,13 @@ const FALLBACK_PLAYER_COLORS = [
   "#9f1239"
 ];
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+const DEMO_BULLETIN_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 520'%3E%3Crect width='1200' height='520' fill='%2321745c'/%3E%3Cpath d='M0 390 C180 330 280 450 430 390 C560 338 690 318 840 372 C1010 432 1100 350 1200 302 L1200 520 L0 520 Z' fill='%23f4f1e8' opacity='.96'/%3E%3Ccircle cx='938' cy='156' r='78' fill='%23f0ae49'/%3E%3Crect x='130' y='146' width='388' height='210' rx='24' fill='%23ffffff' opacity='.94'/%3E%3Crect x='170' y='184' width='184' height='26' rx='13' fill='%2321745c'/%3E%3Crect x='170' y='236' width='280' height='18' rx='9' fill='%2369736f' opacity='.55'/%3E%3Crect x='170' y='276' width='236' height='18' rx='9' fill='%2369736f' opacity='.45'/%3E%3C/svg%3E";
 
 interface DemoStore {
   profile: PlayerProfile;
   pins: GamePin[];
   leaderboard: LeaderboardRow[];
+  bulletins: Bulletin[];
   lastSettledAt: string;
 }
 
@@ -147,6 +151,29 @@ export class DemoAdapter implements GameAdapter {
     return this.state();
   }
 
+  async createBulletin(input: CreateBulletinInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can send bulletins.");
+    if (!input.title.trim()) throw new Error("Add a bulletin title.");
+    if (!input.body.trim()) throw new Error("Add bulletin copy.");
+
+    const now = new Date();
+    const imageUrl = await readFileAsDataUrl(input.imageFile);
+    this.store.bulletins = [
+      {
+        id: crypto.randomUUID(),
+        title: input.title.trim(),
+        body: input.body.trim(),
+        imageUrl,
+        authorId: this.store.profile.id,
+        authorName: this.store.profile.displayName,
+        publishedAt: now.toISOString()
+      },
+      ...this.store.bulletins
+    ];
+    saveStore(this.store);
+    return this.state();
+  }
+
   async restockPin(input: RestockPinInput): Promise<GameState> {
     this.settleIncome();
     const pin = this.store.pins.find((item) => item.id === input.pinId);
@@ -183,6 +210,7 @@ export class DemoAdapter implements GameAdapter {
       pins: this.store.pins,
       leaderboard: this.store.leaderboard,
       scoreHistory: buildDemoScoreHistory(this.store),
+      bulletins: this.store.bulletins,
       isDemoMode: true
     };
   }
@@ -271,10 +299,12 @@ function createInitialStore(): DemoStore {
       id: DEMO_PLAYER_ID,
       displayName: "You",
       playerColor: demoColorForPlayer(DEMO_PLAYER_ID),
-      pointsBalance: GAME_CONFIG.startingPoints
+      pointsBalance: GAME_CONFIG.startingPoints,
+      isAdmin: true
     },
     pins,
     leaderboard: [],
+    bulletins: [createDemoBulletin(now)],
     lastSettledAt: now.toISOString()
   };
 
@@ -298,10 +328,12 @@ function normalizeStore(candidate: Partial<DemoStore>): DemoStore {
       playerColor: normalizeColor(profile.playerColor, profile.id),
       pointsBalance: Number.isFinite(profile.pointsBalance)
         ? Number(profile.pointsBalance)
-        : GAME_CONFIG.startingPoints
+        : GAME_CONFIG.startingPoints,
+      isAdmin: profile.isAdmin !== false
     },
     pins: pins.map((pin, index) => normalizePin(pin ?? undefined, fallback.pins[index])),
     leaderboard: [],
+    bulletins: normalizeBulletins(candidate.bulletins, fallback.bulletins),
     lastSettledAt: candidate.lastSettledAt || new Date().toISOString()
   };
 
@@ -354,6 +386,28 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
   };
 }
 
+function normalizeBulletins(candidate: unknown, fallback: Bulletin[]): Bulletin[] {
+  if (!Array.isArray(candidate)) return fallback;
+
+  return candidate
+    .map((bulletin) => normalizeBulletin(bulletin as Partial<Bulletin>))
+    .filter((bulletin): bulletin is Bulletin => bulletin !== null);
+}
+
+function normalizeBulletin(candidate: Partial<Bulletin>): Bulletin | null {
+  if (!candidate || typeof candidate.id !== "string") return null;
+
+  return {
+    id: candidate.id,
+    title: candidate.title || "Bulletin",
+    body: candidate.body || "",
+    imageUrl: candidate.imageUrl || DEMO_BULLETIN_IMAGE,
+    authorId: candidate.authorId || DEMO_PLAYER_ID,
+    authorName: candidate.authorName || "You",
+    publishedAt: candidate.publishedAt || new Date().toISOString()
+  };
+}
+
 function createDemoPin(
   id: string,
   ownerId: string,
@@ -384,6 +438,18 @@ function createDemoPin(
     status: "stocked",
     currentHourlyRate: 0,
     competitionPressure: 0
+  };
+}
+
+function createDemoBulletin(now: Date): Bulletin {
+  return {
+    id: "bulletin-welcome",
+    title: "Opening week routes",
+    body: "The first rush is live. Look for underserved busy streets, keep an eye on rival clusters, and remember to restock before your shops go cold.",
+    imageUrl: DEMO_BULLETIN_IMAGE,
+    authorId: DEMO_PLAYER_ID,
+    authorName: "You",
+    publishedAt: now.toISOString()
   };
 }
 
@@ -473,6 +539,21 @@ function estimateDemoBusyScore(lat: number, lng: number): number {
 
 function addHours(date: Date, hours: number): Date {
   return new Date(date.getTime() + hours * 3_600_000);
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Could not read image."));
+      }
+    });
+    reader.addEventListener("error", () => reject(new Error("Could not read image.")));
+    reader.readAsDataURL(file);
+  });
 }
 
 function getPinCost(pinType: PlacePinInput["pinType"]): number {

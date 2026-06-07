@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Coffee,
+  ImagePlus,
   LocateFixed,
   LogIn,
   LogOut,
   MapPin,
+  MessageSquare,
   PackageCheck,
   Plus,
   RefreshCcw,
+  Send,
+  ShieldCheck,
   Timer,
   Trophy,
   Users,
@@ -24,17 +28,18 @@ import {
   pointsToWholeTokens
 } from "./lib/constants";
 import { requestCurrentLocation } from "./lib/geo";
-import type { GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint } from "./types";
+import type { Bulletin, GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint } from "./types";
 
 const EMPTY_STATE: GameState = {
   profile: null,
   pins: [],
   leaderboard: [],
   scoreHistory: [],
+  bulletins: [],
   isDemoMode: false
 };
 
-type ActivePanel = "build" | "shops" | "leaderboard" | null;
+type ActivePanel = "build" | "shops" | "leaderboard" | "messages" | "admin" | "bulletin" | null;
 
 interface Notice {
   message: string;
@@ -83,6 +88,10 @@ export default function App() {
   const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
   const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
   const [pendingRadiusUpgradePinId, setPendingRadiusUpgradePinId] = useState<string | null>(null);
+  const [bulletinTitle, setBulletinTitle] = useState("");
+  const [bulletinBody, setBulletinBody] = useState("");
+  const [bulletinImageFile, setBulletinImageFile] = useState<File | null>(null);
+  const [bulletinImagePreview, setBulletinImagePreview] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -167,6 +176,18 @@ export default function App() {
 
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!bulletinImageFile) {
+      setBulletinImagePreview("");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(bulletinImageFile);
+    setBulletinImagePreview(previewUrl);
+
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [bulletinImageFile]);
 
   const refresh = () => run(() => adapter.refresh(), "Updated");
 
@@ -296,6 +317,25 @@ export default function App() {
     }, "Radius upgraded");
   };
 
+  const submitBulletin = (event: React.FormEvent) => {
+    event.preventDefault();
+
+    void run(async () => {
+      if (!bulletinImageFile) throw new Error("Add a bulletin image.");
+
+      const next = await adapter.createBulletin({
+        title: bulletinTitle,
+        body: bulletinBody,
+        imageFile: bulletinImageFile
+      });
+      setBulletinTitle("");
+      setBulletinBody("");
+      setBulletinImageFile(null);
+      setActivePanel("messages");
+      return next;
+    }, "Bulletin sent");
+  };
+
   if (!game.profile && !game.isDemoMode) {
     return (
       <main className="auth-screen">
@@ -380,6 +420,13 @@ export default function App() {
         </div>
       </header>
 
+      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin ? (
+        <button className="admin-map-button" type="button" onClick={() => setActivePanel("admin")}>
+          <ShieldCheck size={16} />
+          Admin
+        </button>
+      ) : null}
+
       {selectedPin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin ? (
         <section className="map-selection-card" aria-label="Selected shop">
           {selectedOwnPin ? (
@@ -435,6 +482,14 @@ export default function App() {
             <Trophy size={20} />
             <span>Scores</span>
           </button>
+          <button
+            className={activePanel === "messages" ? "bottom-action bottom-action--active" : "bottom-action"}
+            type="button"
+            onClick={() => setActivePanel("messages")}
+          >
+            <MessageSquare size={20} />
+            <span>Messages</span>
+          </button>
         </nav>
       )}
 
@@ -445,6 +500,8 @@ export default function App() {
               {activePanel === "build" ? <MapPin size={20} /> : null}
               {activePanel === "shops" ? <Users size={20} /> : null}
               {activePanel === "leaderboard" ? <Trophy size={20} /> : null}
+              {activePanel === "messages" ? <MessageSquare size={20} /> : null}
+              {activePanel === "admin" || activePanel === "bulletin" ? <ShieldCheck size={20} /> : null}
               <h2>{getPanelTitle(activePanel)}</h2>
             </div>
             <button className="icon-button" type="button" onClick={() => setActivePanel(null)} title="Close">
@@ -482,6 +539,29 @@ export default function App() {
 
             {activePanel === "leaderboard" ? (
               <ScoresPanel leaderboard={game.leaderboard} scoreHistory={game.scoreHistory} />
+            ) : null}
+
+            {activePanel === "messages" ? (
+              <MessagesPanel bulletins={game.bulletins} />
+            ) : null}
+
+            {activePanel === "admin" ? (
+              <AdminPanel onCreateBulletin={() => setActivePanel("bulletin")} />
+            ) : null}
+
+            {activePanel === "bulletin" ? (
+              <BulletinComposerPanel
+                title={bulletinTitle}
+                body={bulletinBody}
+                imageFile={bulletinImageFile}
+                imagePreview={bulletinImagePreview}
+                isBusy={isBusy}
+                onTitleChange={setBulletinTitle}
+                onBodyChange={setBulletinBody}
+                onImageChange={setBulletinImageFile}
+                onBack={() => setActivePanel("admin")}
+                onSubmit={submitBulletin}
+              />
             ) : null}
           </div>
         </section>
@@ -718,6 +798,115 @@ function ScoresPanel({
   );
 }
 
+function MessagesPanel({ bulletins }: { bulletins: Bulletin[] }) {
+  if (bulletins.length === 0) {
+    return <p className="muted">No messages yet.</p>;
+  }
+
+  return (
+    <div className="bulletin-list">
+      {bulletins.map((bulletin) => (
+        <article className="bulletin-card" key={bulletin.id}>
+          <div className="bulletin-card__header">
+            <h3>{bulletin.title}</h3>
+            <span>{formatBulletinDate(bulletin.publishedAt)}</span>
+          </div>
+          <img src={bulletin.imageUrl} alt="" />
+          <div className="bulletin-card__body">
+            <p>{bulletin.body}</p>
+            <small>Sent by {bulletin.authorName}</small>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function AdminPanel({ onCreateBulletin }: { onCreateBulletin: () => void }) {
+  return (
+    <div className="admin-action-list">
+      <button className="shop-type-button" type="button" onClick={onCreateBulletin}>
+        <span>
+          <strong>Bulletin</strong>
+          <small>Send a message with an image to every player.</small>
+        </span>
+        <Send size={20} />
+      </button>
+    </div>
+  );
+}
+
+function BulletinComposerPanel({
+  title,
+  body,
+  imageFile,
+  imagePreview,
+  isBusy,
+  onTitleChange,
+  onBodyChange,
+  onImageChange,
+  onBack,
+  onSubmit
+}: {
+  title: string;
+  body: string;
+  imageFile: File | null;
+  imagePreview: string;
+  isBusy: boolean;
+  onTitleChange: (value: string) => void;
+  onBodyChange: (value: string) => void;
+  onImageChange: (file: File | null) => void;
+  onBack: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+}) {
+  return (
+    <form className="bulletin-form" onSubmit={onSubmit}>
+      <button className="text-action" type="button" onClick={onBack}>
+        Back
+      </button>
+      <label className="field">
+        <span>Title</span>
+        <input
+          value={title}
+          maxLength={120}
+          onChange={(event) => onTitleChange(event.target.value)}
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Image</span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          onChange={(event) => onImageChange(event.target.files?.[0] ?? null)}
+          required={!imageFile}
+        />
+      </label>
+      {imagePreview ? (
+        <img className="bulletin-image-preview" src={imagePreview} alt="" />
+      ) : (
+        <div className="bulletin-image-empty">
+          <ImagePlus size={22} />
+        </div>
+      )}
+      <label className="field">
+        <span>Body</span>
+        <textarea
+          value={body}
+          rows={8}
+          maxLength={5000}
+          onChange={(event) => onBodyChange(event.target.value)}
+          required
+        />
+      </label>
+      <button className="primary-action" type="submit" disabled={isBusy || !title.trim() || !body.trim() || !imageFile}>
+        <Send size={18} />
+        Send Bulletin
+      </button>
+    </form>
+  );
+}
+
 function ScoreHistoryChart({
   leaderboard,
   scoreHistory
@@ -818,6 +1007,12 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
       return "Your Shops";
     case "leaderboard":
       return "Scores";
+    case "messages":
+      return "Messages";
+    case "admin":
+      return "Admin";
+    case "bulletin":
+      return "Bulletin";
   }
 }
 
@@ -1026,6 +1221,16 @@ function formatDateRange(minTime: number, maxTime: number): string {
   const start = formatChartTickDate(minTime);
   const end = formatChartTickDate(maxTime);
   return start === end ? start : `${start} - ${end}`;
+}
+
+function formatBulletinDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
 }
 
 function TokenProgressRing({

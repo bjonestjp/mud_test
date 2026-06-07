@@ -48,6 +48,8 @@ The frontend calls these Supabase RPCs:
 - `get_visible_pins`
 - `get_leaderboard`
 - `get_score_history`
+- `get_bulletins`
+- `create_bulletin`
 
 ## Current MVP Scope
 
@@ -61,6 +63,7 @@ The frontend calls these Supabase RPCs:
 - 50m restock radius
 - 150m base competition radius, upgradeable once to 300m per shop
 - Player-coloured pins, with own pins and rival pins both competing
+- Admin-authored bulletin messages with images
 - Automatic passive income settlement
 - Immediate pin visibility
 - Demo-mode fallback when Supabase is not configured

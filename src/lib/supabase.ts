@@ -7,6 +7,8 @@ import {
   getBusyLabel
 } from "./geo";
 import type {
+  Bulletin,
+  CreateBulletinInput,
   GameAdapter,
   GamePin,
   GameState,
@@ -20,6 +22,7 @@ import type {
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const MANUAL_ACCOUNT_DOMAIN = "players.mudslingers.test";
+const BULLETIN_IMAGE_BUCKET = "bulletin-images";
 const PLAYER_COLORS = [
   "#21745c",
   "#2f5f9f",
@@ -91,16 +94,18 @@ class SupabaseGameAdapter implements GameAdapter {
         pins: [],
         leaderboard: [],
         scoreHistory: [],
+        bulletins: [],
         isDemoMode: false
       };
     }
 
     await this.supabase.rpc("settle_player_income");
 
-    const [profile, pins, leaderboard] = await Promise.all([
+    const [profile, pins, leaderboard, bulletins] = await Promise.all([
       this.fetchProfile(user.id),
       this.fetchPins(),
-      this.fetchLeaderboard()
+      this.fetchLeaderboard(),
+      this.fetchBulletins()
     ]);
     const scoreHistory = await this.fetchScoreHistory(leaderboard);
 
@@ -109,6 +114,7 @@ class SupabaseGameAdapter implements GameAdapter {
       pins,
       leaderboard,
       scoreHistory,
+      bulletins,
       isDemoMode: false
     };
   }
@@ -147,7 +153,32 @@ class SupabaseGameAdapter implements GameAdapter {
     return this.refresh();
   }
 
+  async createBulletin(input: CreateBulletinInput): Promise<GameState> {
+    const imagePath = await this.uploadBulletinImage(input.imageFile);
+
+    const { error } = await this.supabase.rpc("create_bulletin", {
+      p_title: input.title,
+      p_body: input.body,
+      p_image_path: imagePath
+    });
+
+    if (error) {
+      await this.supabase.storage.from(BULLETIN_IMAGE_BUCKET).remove([imagePath]);
+      throw error;
+    }
+
+    return this.refresh();
+  }
+
   private async fetchProfile(userId: string): Promise<PlayerProfile | null> {
+    const withRole = await this.supabase
+      .from("profiles")
+      .select("id, display_name, points_balance, player_color, account_role")
+      .eq("id", userId)
+      .single();
+
+    if (!withRole.error) return mapProfileRow(withRole.data, userId);
+
     const withColor = await this.supabase
       .from("profiles")
       .select("id, display_name, points_balance, player_color")
@@ -205,6 +236,47 @@ class SupabaseGameAdapter implements GameAdapter {
 
     const history = (data ?? []).map(mapScoreHistoryRow);
     return history.length > 0 ? history : currentScoreHistoryFromLeaderboard(leaderboard);
+  }
+
+  private async fetchBulletins(): Promise<Bulletin[]> {
+    const { data, error } = await this.supabase.rpc("get_bulletins");
+
+    if (error) {
+      const message = error.message ?? "";
+      if (error.code === "PGRST202" || message.includes("get_bulletins")) {
+        return [];
+      }
+      throw error;
+    }
+
+    return (data ?? []).map((row: Record<string, unknown>) =>
+      mapBulletinRow(row, this.publicBulletinImageUrl(String(row.image_path)))
+    );
+  }
+
+  private async uploadBulletinImage(file: File): Promise<string> {
+    const {
+      data: { user }
+    } = await this.supabase.auth.getUser();
+
+    if (!user) throw new Error("You must be signed in.");
+
+    const path = `${user.id}/${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+    const { error } = await this.supabase.storage
+      .from(BULLETIN_IMAGE_BUCKET)
+      .upload(path, file, {
+        cacheControl: "3600",
+        contentType: file.type || "image/jpeg",
+        upsert: false
+      });
+
+    if (error) throw error;
+    return path;
+  }
+
+  private publicBulletinImageUrl(path: string): string {
+    const { data } = this.supabase.storage.from(BULLETIN_IMAGE_BUCKET).getPublicUrl(path);
+    return data.publicUrl;
   }
 
   private async fetchPinsDirectly(): Promise<GamePin[]> {
@@ -352,7 +424,20 @@ function mapProfileRow(row: Record<string, unknown>, fallbackKey: string): Playe
     id: String(row.id),
     displayName: String(row.display_name),
     pointsBalance: Number(row.points_balance),
-    playerColor: safeColor(row.player_color, fallbackKey)
+    playerColor: safeColor(row.player_color, fallbackKey),
+    isAdmin: row.account_role === "admin"
+  };
+}
+
+function mapBulletinRow(row: Record<string, unknown>, imageUrl: string): Bulletin {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    body: String(row.body),
+    imageUrl,
+    authorId: String(row.author_id),
+    authorName: String(row.author_name),
+    publishedAt: String(row.published_at)
   };
 }
 
@@ -390,6 +475,16 @@ function toAuthEmail(usernameOrEmail: string): string {
 
   if (!username) throw new Error("Enter a username using letters or numbers.");
   return `${username}@${MANUAL_ACCOUNT_DOMAIN}`;
+}
+
+function safeStorageFileName(fileName: string): string {
+  const safe = fileName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return safe || "bulletin-image.jpg";
 }
 
 function safeColor(value: unknown, fallbackKey: string): string {

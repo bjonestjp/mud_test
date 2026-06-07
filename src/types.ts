@@ -9,6 +9,7 @@ export interface PlayerProfile {
   displayName: string;
   pointsBalance: number;
   playerColor: string;
+  isAdmin: boolean;
 }
 
 export interface GamePin {
@@ -50,11 +51,22 @@ export interface ScoreHistoryPoint {
   recordedAt: string;
 }
 
+export interface Bulletin {
+  id: string;
+  title: string;
+  body: string;
+  imageUrl: string;
+  authorId: string;
+  authorName: string;
+  publishedAt: string;
+}
+
 export interface GameState {
   profile: PlayerProfile | null;
   pins: GamePin[];
   leaderboard: LeaderboardRow[];
   scoreHistory: ScoreHistoryPoint[];
+  bulletins: Bulletin[];
   isDemoMode: boolean;
 }
 
@@ -83,6 +95,12 @@ export interface UpgradeRadiusInput {
   pinId: string;
 }
 
+export interface CreateBulletinInput {
+  title: string;
+  body: string;
+  imageFile: File;
+}
+
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
@@ -92,4 +110,5 @@ export interface GameAdapter {
   placePin(input: PlacePinInput): Promise<GameState>;
   restockPin(input: RestockPinInput): Promise<GameState>;
   upgradePinRadius(input: UpgradeRadiusInput): Promise<GameState>;
+  createBulletin(input: CreateBulletinInput): Promise<GameState>;
 }
