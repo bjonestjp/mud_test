@@ -12,6 +12,8 @@ The first migration creates the MVP database, game RPCs, and Row Level Security 
 - `get_score_history()`
 - `get_bulletins()`
 - `create_bulletin(title, body, image_path)`
+- `update_bulletin(bulletin_id, title, body, image_path)`
+- `delete_bulletin(bulletin_id)`
 
 The game uses `pin_income_periods` so passive income remains historically correct when nearby pins appear, go out of stock, or get restocked.
 

@@ -50,6 +50,8 @@ The frontend calls these Supabase RPCs:
 - `get_score_history`
 - `get_bulletins`
 - `create_bulletin`
+- `update_bulletin`
+- `delete_bulletin`
 
 ## Current MVP Scope
 

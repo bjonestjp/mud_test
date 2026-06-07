@@ -92,6 +92,8 @@ export default function App() {
   const [bulletinBody, setBulletinBody] = useState("");
   const [bulletinImageFile, setBulletinImageFile] = useState<File | null>(null);
   const [bulletinImagePreview, setBulletinImagePreview] = useState("");
+  const [editingBulletinId, setEditingBulletinId] = useState<string | null>(null);
+  const [pendingDeleteBulletinId, setPendingDeleteBulletinId] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -105,6 +107,8 @@ export default function App() {
   const selectedOwnPin = selectedPin?.ownerId === game.profile?.id ? selectedPin : null;
   const pendingRestockPin = game.pins.find((pin) => pin.id === pendingRestockPinId) ?? null;
   const pendingRadiusUpgradePin = game.pins.find((pin) => pin.id === pendingRadiusUpgradePinId) ?? null;
+  const editingBulletin = game.bulletins.find((bulletin) => bulletin.id === editingBulletinId) ?? null;
+  const pendingDeleteBulletin = game.bulletins.find((bulletin) => bulletin.id === pendingDeleteBulletinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
 
@@ -283,6 +287,34 @@ export default function App() {
     setPendingRadiusUpgradePinId(null);
   };
 
+  const clearBulletinForm = () => {
+    setBulletinTitle("");
+    setBulletinBody("");
+    setBulletinImageFile(null);
+    setEditingBulletinId(null);
+  };
+
+  const startCreateBulletin = () => {
+    clearBulletinForm();
+    setActivePanel("bulletin");
+  };
+
+  const startEditBulletin = (bulletin: Bulletin) => {
+    setBulletinTitle(bulletin.title);
+    setBulletinBody(bulletin.body);
+    setBulletinImageFile(null);
+    setEditingBulletinId(bulletin.id);
+    setActivePanel("bulletin");
+  };
+
+  const requestDeleteBulletin = (bulletinId: string) => {
+    setPendingDeleteBulletinId(bulletinId);
+  };
+
+  const cancelDeleteBulletin = () => {
+    setPendingDeleteBulletinId(null);
+  };
+
   const confirmRestock = () => {
     if (!pendingRestockPin) return;
     const pinId = pendingRestockPin.id;
@@ -321,19 +353,35 @@ export default function App() {
     event.preventDefault();
 
     void run(async () => {
-      if (!bulletinImageFile) throw new Error("Add a bulletin image.");
+      const next = editingBulletin
+        ? await adapter.updateBulletin({
+            bulletinId: editingBulletin.id,
+            title: bulletinTitle,
+            body: bulletinBody,
+            imageFile: bulletinImageFile
+          })
+        : await adapter.createBulletin({
+            title: bulletinTitle,
+            body: bulletinBody,
+            imageFile: requireBulletinImageFile(bulletinImageFile)
+          });
 
-      const next = await adapter.createBulletin({
-        title: bulletinTitle,
-        body: bulletinBody,
-        imageFile: bulletinImageFile
-      });
-      setBulletinTitle("");
-      setBulletinBody("");
-      setBulletinImageFile(null);
+      clearBulletinForm();
       setActivePanel("messages");
       return next;
-    }, "Bulletin sent");
+    }, editingBulletin ? "Bulletin updated" : "Bulletin sent");
+  };
+
+  const confirmDeleteBulletin = () => {
+    if (!pendingDeleteBulletin) return;
+    const bulletinId = pendingDeleteBulletin.id;
+
+    void run(async () => {
+      const next = await adapter.deleteBulletin({ bulletinId });
+      setPendingDeleteBulletinId(null);
+      if (editingBulletinId === bulletinId) clearBulletinForm();
+      return next;
+    }, "Bulletin deleted");
   };
 
   if (!game.profile && !game.isDemoMode) {
@@ -420,7 +468,7 @@ export default function App() {
         </div>
       </header>
 
-      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin ? (
+      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingDeleteBulletin ? (
         <button className="admin-map-button" type="button" onClick={() => setActivePanel("admin")}>
           <ShieldCheck size={16} />
           Admin
@@ -542,24 +590,31 @@ export default function App() {
             ) : null}
 
             {activePanel === "messages" ? (
-              <MessagesPanel bulletins={game.bulletins} />
+              <MessagesPanel
+                bulletins={game.bulletins}
+                isAdmin={Boolean(game.profile?.isAdmin)}
+                isBusy={isBusy}
+                onEdit={startEditBulletin}
+                onDelete={requestDeleteBulletin}
+              />
             ) : null}
 
             {activePanel === "admin" ? (
-              <AdminPanel onCreateBulletin={() => setActivePanel("bulletin")} />
+              <AdminPanel onCreateBulletin={startCreateBulletin} />
             ) : null}
 
             {activePanel === "bulletin" ? (
               <BulletinComposerPanel
+                mode={editingBulletin ? "edit" : "create"}
                 title={bulletinTitle}
                 body={bulletinBody}
                 imageFile={bulletinImageFile}
-                imagePreview={bulletinImagePreview}
+                imagePreview={bulletinImagePreview || editingBulletin?.imageUrl || ""}
                 isBusy={isBusy}
                 onTitleChange={setBulletinTitle}
                 onBodyChange={setBulletinBody}
                 onImageChange={setBulletinImageFile}
-                onBack={() => setActivePanel("admin")}
+                onBack={() => setActivePanel(editingBulletin ? "messages" : "admin")}
                 onSubmit={submitBulletin}
               />
             ) : null}
@@ -584,6 +639,15 @@ export default function App() {
           isBusy={isBusy}
           onConfirm={confirmRadiusUpgrade}
           onCancel={cancelRadiusUpgrade}
+        />
+      ) : null}
+
+      {pendingDeleteBulletin ? (
+        <DeleteBulletinConfirmPanel
+          bulletin={pendingDeleteBulletin}
+          isBusy={isBusy}
+          onConfirm={confirmDeleteBulletin}
+          onCancel={cancelDeleteBulletin}
         />
       ) : null}
 
@@ -798,7 +862,19 @@ function ScoresPanel({
   );
 }
 
-function MessagesPanel({ bulletins }: { bulletins: Bulletin[] }) {
+function MessagesPanel({
+  bulletins,
+  isAdmin,
+  isBusy,
+  onEdit,
+  onDelete
+}: {
+  bulletins: Bulletin[];
+  isAdmin: boolean;
+  isBusy: boolean;
+  onEdit: (bulletin: Bulletin) => void;
+  onDelete: (bulletinId: string) => void;
+}) {
   if (bulletins.length === 0) {
     return <p className="muted">No messages yet.</p>;
   }
@@ -814,7 +890,19 @@ function MessagesPanel({ bulletins }: { bulletins: Bulletin[] }) {
           <img src={bulletin.imageUrl} alt="" />
           <div className="bulletin-card__body">
             <p>{bulletin.body}</p>
-            <small>Sent by {bulletin.authorName}</small>
+            <div className="bulletin-card__meta">
+              <small>Sent by {bulletin.authorName}</small>
+              {isAdmin ? (
+                <span className="bulletin-admin-actions">
+                  <button className="text-action" type="button" onClick={() => onEdit(bulletin)} disabled={isBusy}>
+                    Edit
+                  </button>
+                  <button className="text-action text-action--danger" type="button" onClick={() => onDelete(bulletin.id)} disabled={isBusy}>
+                    Delete
+                  </button>
+                </span>
+              ) : null}
+            </div>
           </div>
         </article>
       ))}
@@ -837,6 +925,7 @@ function AdminPanel({ onCreateBulletin }: { onCreateBulletin: () => void }) {
 }
 
 function BulletinComposerPanel({
+  mode,
   title,
   body,
   imageFile,
@@ -848,6 +937,7 @@ function BulletinComposerPanel({
   onBack,
   onSubmit
 }: {
+  mode: "create" | "edit";
   title: string;
   body: string;
   imageFile: File | null;
@@ -859,6 +949,8 @@ function BulletinComposerPanel({
   onBack: () => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
+  const isEditing = mode === "edit";
+
   return (
     <form className="bulletin-form" onSubmit={onSubmit}>
       <button className="text-action" type="button" onClick={onBack}>
@@ -879,7 +971,7 @@ function BulletinComposerPanel({
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           onChange={(event) => onImageChange(event.target.files?.[0] ?? null)}
-          required={!imageFile}
+          required={!isEditing && !imageFile}
         />
       </label>
       {imagePreview ? (
@@ -899,9 +991,9 @@ function BulletinComposerPanel({
           required
         />
       </label>
-      <button className="primary-action" type="submit" disabled={isBusy || !title.trim() || !body.trim() || !imageFile}>
+      <button className="primary-action" type="submit" disabled={isBusy || !title.trim() || !body.trim() || (!isEditing && !imageFile)}>
         <Send size={18} />
-        Send Bulletin
+        {isEditing ? "Save Bulletin" : "Send Bulletin"}
       </button>
     </form>
   );
@@ -1461,6 +1553,51 @@ function RadiusUpgradeConfirmPanel({
   );
 }
 
+function DeleteBulletinConfirmPanel({
+  bulletin,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  bulletin: Bulletin;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="screen-panel screen-panel--confirm" role="dialog" aria-modal="true">
+      <div className="screen-panel__header">
+        <div className="section-title">
+          <MessageSquare size={20} />
+          <h2>Delete</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={onCancel} title="Close">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="screen-panel__body">
+        <div className="confirm-stack">
+          <p className="confirm-question">Delete this bulletin?</p>
+          <div className="selected-build-type">
+            <span>
+              <strong>{bulletin.title}</strong>
+              <small>Players will no longer see this message.</small>
+            </span>
+          </div>
+          <div className="build-confirm-actions">
+            <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+              Cancel
+            </button>
+            <button className="danger-action" type="button" onClick={onConfirm} disabled={isBusy}>
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function readAuthNoticeFromUrl(): string {
   if (!window.location.hash.startsWith("#")) return "";
 
@@ -1487,6 +1624,11 @@ function formatErrorMessage(error: unknown): string {
   if (typeof error === "string") return error;
 
   return "Something went wrong. Check the browser console or Supabase logs for details.";
+}
+
+function requireBulletinImageFile(file: File | null): File {
+  if (!file) throw new Error("Add a bulletin image.");
+  return file;
 }
 
 async function getFreshPlayerLocation(

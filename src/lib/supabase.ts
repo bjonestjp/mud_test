@@ -9,6 +9,7 @@ import {
 import type {
   Bulletin,
   CreateBulletinInput,
+  DeleteBulletinInput,
   GameAdapter,
   GamePin,
   GameState,
@@ -16,7 +17,8 @@ import type {
   PlacePinInput,
   PlayerProfile,
   RestockPinInput,
-  ScoreHistoryPoint
+  ScoreHistoryPoint,
+  UpdateBulletinInput
 } from "../types";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -170,6 +172,47 @@ class SupabaseGameAdapter implements GameAdapter {
     return this.refresh();
   }
 
+  async updateBulletin(input: UpdateBulletinInput): Promise<GameState> {
+    const nextImagePath = input.imageFile
+      ? await this.uploadBulletinImage(input.imageFile)
+      : null;
+
+    const { data, error } = await this.supabase.rpc("update_bulletin", {
+      p_bulletin_id: input.bulletinId,
+      p_title: input.title,
+      p_body: input.body,
+      p_image_path: nextImagePath
+    });
+
+    if (error) {
+      if (nextImagePath) await this.removeBulletinImages([nextImagePath]);
+      throw error;
+    }
+
+    if (nextImagePath) {
+      const previousImagePath = getRpcStringField(data, "previous_image_path");
+      if (previousImagePath && previousImagePath !== nextImagePath) {
+        await this.removeBulletinImages([previousImagePath]);
+      }
+    }
+
+    return this.refresh();
+  }
+
+  async deleteBulletin(input: DeleteBulletinInput): Promise<GameState> {
+    const { data, error } = await this.supabase.rpc("delete_bulletin", {
+      p_bulletin_id: input.bulletinId
+    });
+
+    if (error) throw error;
+
+    if (typeof data === "string") {
+      await this.removeBulletinImages([data]);
+    }
+
+    return this.refresh();
+  }
+
   private async fetchProfile(userId: string): Promise<PlayerProfile | null> {
     const withRole = await this.supabase
       .from("profiles")
@@ -277,6 +320,13 @@ class SupabaseGameAdapter implements GameAdapter {
   private publicBulletinImageUrl(path: string): string {
     const { data } = this.supabase.storage.from(BULLETIN_IMAGE_BUCKET).getPublicUrl(path);
     return data.publicUrl;
+  }
+
+  private async removeBulletinImages(paths: string[]): Promise<void> {
+    const cleanPaths = paths.filter(Boolean);
+    if (cleanPaths.length === 0) return;
+
+    await this.supabase.storage.from(BULLETIN_IMAGE_BUCKET).remove(cleanPaths);
   }
 
   private async fetchPinsDirectly(): Promise<GamePin[]> {
@@ -434,11 +484,18 @@ function mapBulletinRow(row: Record<string, unknown>, imageUrl: string): Bulleti
     id: String(row.id),
     title: String(row.title),
     body: String(row.body),
+    imagePath: String(row.image_path),
     imageUrl,
     authorId: String(row.author_id),
     authorName: String(row.author_name),
     publishedAt: String(row.published_at)
   };
+}
+
+function getRpcStringField(value: unknown, key: string): string | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" ? candidate : null;
 }
 
 function mapScoreHistoryRow(row: Record<string, unknown>): ScoreHistoryPoint {

@@ -55,6 +55,7 @@ export interface Bulletin {
   id: string;
   title: string;
   body: string;
+  imagePath: string;
   imageUrl: string;
   authorId: string;
   authorName: string;
@@ -101,6 +102,17 @@ export interface CreateBulletinInput {
   imageFile: File;
 }
 
+export interface UpdateBulletinInput {
+  bulletinId: string;
+  title: string;
+  body: string;
+  imageFile?: File | null;
+}
+
+export interface DeleteBulletinInput {
+  bulletinId: string;
+}
+
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
@@ -111,4 +123,6 @@ export interface GameAdapter {
   restockPin(input: RestockPinInput): Promise<GameState>;
   upgradePinRadius(input: UpgradeRadiusInput): Promise<GameState>;
   createBulletin(input: CreateBulletinInput): Promise<GameState>;
+  updateBulletin(input: UpdateBulletinInput): Promise<GameState>;
+  deleteBulletin(input: DeleteBulletinInput): Promise<GameState>;
 }

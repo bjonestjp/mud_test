@@ -8,6 +8,7 @@ import {
 import type {
   Bulletin,
   CreateBulletinInput,
+  DeleteBulletinInput,
   GameAdapter,
   GamePin,
   GameState,
@@ -15,7 +16,8 @@ import type {
   PlacePinInput,
   PlayerProfile,
   RestockPinInput,
-  ScoreHistoryPoint
+  ScoreHistoryPoint,
+  UpdateBulletinInput
 } from "../types";
 
 const STORAGE_KEY = "coffee-pin-demo-state-v1";
@@ -163,6 +165,7 @@ export class DemoAdapter implements GameAdapter {
         id: crypto.randomUUID(),
         title: input.title.trim(),
         body: input.body.trim(),
+        imagePath: `demo/${crypto.randomUUID()}`,
         imageUrl,
         authorId: this.store.profile.id,
         authorName: this.store.profile.displayName,
@@ -170,6 +173,39 @@ export class DemoAdapter implements GameAdapter {
       },
       ...this.store.bulletins
     ];
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async updateBulletin(input: UpdateBulletinInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can edit bulletins.");
+    if (!input.title.trim()) throw new Error("Add a bulletin title.");
+    if (!input.body.trim()) throw new Error("Add bulletin copy.");
+
+    const bulletin = this.store.bulletins.find((item) => item.id === input.bulletinId);
+    if (!bulletin) throw new Error("Bulletin was not found.");
+
+    bulletin.title = input.title.trim();
+    bulletin.body = input.body.trim();
+
+    if (input.imageFile) {
+      bulletin.imagePath = `demo/${crypto.randomUUID()}`;
+      bulletin.imageUrl = await readFileAsDataUrl(input.imageFile);
+    }
+
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async deleteBulletin(input: DeleteBulletinInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can delete bulletins.");
+
+    const nextBulletins = this.store.bulletins.filter((item) => item.id !== input.bulletinId);
+    if (nextBulletins.length === this.store.bulletins.length) {
+      throw new Error("Bulletin was not found.");
+    }
+
+    this.store.bulletins = nextBulletins;
     saveStore(this.store);
     return this.state();
   }
@@ -402,6 +438,7 @@ function normalizeBulletin(candidate: Partial<Bulletin>): Bulletin | null {
     title: candidate.title || "Bulletin",
     body: candidate.body || "",
     imageUrl: candidate.imageUrl || DEMO_BULLETIN_IMAGE,
+    imagePath: candidate.imagePath || `demo/${candidate.id}`,
     authorId: candidate.authorId || DEMO_PLAYER_ID,
     authorName: candidate.authorName || "You",
     publishedAt: candidate.publishedAt || new Date().toISOString()
@@ -446,6 +483,7 @@ function createDemoBulletin(now: Date): Bulletin {
     id: "bulletin-welcome",
     title: "Opening week routes",
     body: "The first rush is live. Look for underserved busy streets, keep an eye on rival clusters, and remember to restock before your shops go cold.",
+    imagePath: "demo/welcome.svg",
     imageUrl: DEMO_BULLETIN_IMAGE,
     authorId: DEMO_PLAYER_ID,
     authorName: "You",

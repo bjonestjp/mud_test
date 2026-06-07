@@ -451,7 +451,8 @@ button:disabled {
 .icon-button,
 .primary-action,
 .secondary-action,
-.upgrade-action {
+.upgrade-action,
+.danger-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -493,6 +494,13 @@ button:disabled {
   min-height: 42px;
   color: #fff;
   background: var(--green-dark);
+}
+
+.danger-action {
+  min-height: 44px;
+  padding: 0 16px;
+  color: #fff;
+  background: var(--red);
 }
 
 .bottom-actions {
@@ -663,6 +671,10 @@ button:disabled {
   background: #69736f;
 }
 
+.build-confirm-actions .danger-action {
+  width: auto;
+}
+
 .screen-panel {
   position: absolute;
   inset: 0;
@@ -758,6 +770,10 @@ button:disabled {
   color: var(--blue);
   font-weight: 800;
   padding: 0;
+}
+
+.text-action--danger {
+  color: var(--red);
 }
 
 .section-title {
@@ -1106,6 +1122,19 @@ textarea:focus {
   margin: 0;
   color: var(--ink);
   white-space: pre-wrap;
+}
+
+.bulletin-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bulletin-admin-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 12px;
 }
 
 .bulletin-form {
