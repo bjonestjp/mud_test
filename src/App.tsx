@@ -92,14 +92,12 @@ const SHOP_TYPES: ShopTypeOption[] = [
 ];
 
 const SHOP_LEVEL_VISUALS = [
-  { label: "Grey Circle", shape: "circle", color: "#8c9691" },
-  { label: "Green Triangle", shape: "triangle", color: "#21745c" },
-  { label: "Blue Square", shape: "square", color: "#2f5f9f" },
-  { label: "Purple Pentagon", shape: "pentagon", color: "#7a4ab8" },
-  { label: "Gold Hexagon", shape: "hexagon", color: "#d49a25" }
+  { label: "Grey Dot", dots: 1, color: "#8c9691" },
+  { label: "Green Dots", dots: 2, color: "#21745c" },
+  { label: "Blue Dots", dots: 3, color: "#2f5f9f" },
+  { label: "Purple Dots", dots: 4, color: "#7a4ab8" },
+  { label: "Gold Dots", dots: 5, color: "#d49a25" }
 ] as const;
-
-type ShopLevelShape = (typeof SHOP_LEVEL_VISUALS)[number]["shape"];
 
 interface ShopLevelModel {
   currentLevel: number;
@@ -1970,6 +1968,7 @@ function PinDetail({
 
   return (
     <div className="detail-grid">
+      <ShopLevelProgressStrip pin={pin} config={shopLevelConfig} />
       <div className="metric-card">
         <span>Owner</span>
         <strong className="metric-card__value">
@@ -1978,7 +1977,7 @@ function PinDetail({
         </strong>
       </div>
       <div className="metric-card">
-        <span>Busy</span>
+        <span>Popularity</span>
         <strong>{pin.busyLabel}</strong>
       </div>
       <div className="metric-card">
@@ -1986,14 +1985,17 @@ function PinDetail({
         <strong>{formatHourlyTokenRate(pin.currentHourlyRate)}</strong>
       </div>
       <div className="metric-card">
-        <span>Pressure</span>
+        <span>Competition</span>
         <strong>{formatRate(pin.competitionPressure)}</strong>
       </div>
       <div className="metric-card">
-        <span>Reach</span>
+        <span>Radius</span>
         <strong>{formatRadius(pin)}</strong>
       </div>
-      <ShopLevelProgressStrip pin={pin} config={shopLevelConfig} />
+      <div className="metric-card">
+        <span>Lifetime Sales</span>
+        <strong>{formatSalesAmount(pin.lifetimeIncome)}</strong>
+      </div>
       <RestockStatusStrip pin={pin} nowMs={nowMs} />
       {isOwner && pin.pinType === "standard" ? (
         <button className="secondary-action" type="button" onClick={onRequestRestock} disabled={isBusy}>
@@ -2432,7 +2434,8 @@ function ShopLevelProgressStrip({
   config: ShopLevelConfig;
 }) {
   const level = getShopLevelModel(pin.lifetimeIncome, config);
-  const progressColor = level.nextVisual?.color ?? level.currentVisual?.color ?? "#d49a25";
+  const earnedColor = level.currentVisual?.color ?? SHOP_LEVEL_VISUALS[0].color;
+  const nextColor = level.nextVisual?.color ?? level.currentVisual?.color ?? SHOP_LEVEL_VISUALS[0].color;
   const salesLabel = level.nextThreshold
     ? `${formatSalesAmount(pin.lifetimeIncome)} / ${formatSalesAmount(level.nextThreshold)} sales`
     : `${formatSalesAmount(pin.lifetimeIncome)} sales · max level`;
@@ -2442,25 +2445,16 @@ function ShopLevelProgressStrip({
       className="shop-level-progress"
       style={{
         "--shop-level-progress": `${level.progress}`,
-        "--shop-level-color": progressColor
+        "--shop-level-earned-color": earnedColor,
+        "--shop-level-next-color": nextColor
       } as Record<string, string>}
-    >
-      <div className="shop-level-progress__copy">
-        <span>
-          {level.currentVisual ? (
-            <ShopLevelIcon visual={level.currentVisual} />
-          ) : (
-            <ShopLevelIcon visual={SHOP_LEVEL_VISUALS[0]} isPending />
-          )}
-          <strong>{salesLabel}</strong>
-        </span>
-        <small>
-          {level.nextVisual
-            ? `Next: ${level.nextVisual.label}`
-            : `${level.currentVisual?.label ?? "Max Level"} · ${formatHourlyTokenRate(level.bonusPointsPerHour)}`}
-        </small>
-      </div>
-    </div>
+      role="progressbar"
+      aria-label={`Shop level progress: ${salesLabel}`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(level.progress * 100)}
+      title={salesLabel}
+    />
   );
 }
 
@@ -2472,18 +2466,20 @@ function ShopLevelIcon({
   isPending?: boolean;
 }) {
   return (
-    <i
+    <span
       className={[
         "shop-level-icon",
-        `shop-level-icon--${visual.shape}`,
         isPending ? "shop-level-icon--pending" : ""
       ]
         .filter(Boolean)
         .join(" ")}
       style={{ "--shop-level-color": visual.color } as Record<string, string>}
+      role="img"
       title={visual.label}
       aria-label={visual.label}
-    />
+    >
+      {"•".repeat(visual.dots)}
+    </span>
   );
 }
 
