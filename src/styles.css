@@ -895,6 +895,61 @@ textarea:focus {
   grid-column: 1 / -1;
 }
 
+.shop-level-progress {
+  --shop-level-progress: 0;
+  --shop-level-color: var(--green);
+  position: relative;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  min-height: 54px;
+  border: 1px solid rgba(28, 44, 39, 0.12);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.shop-level-progress::before {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--shop-level-color) 24%, #fff);
+  content: "";
+  transform: scaleX(var(--shop-level-progress));
+  transform-origin: left center;
+  transition: transform 320ms ease;
+}
+
+.shop-level-progress__copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.shop-level-progress__copy span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-level-progress__copy strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-level-progress__copy small {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .metric-card {
   min-height: 64px;
   padding: 10px;
@@ -1145,6 +1200,57 @@ textarea:focus {
   max-width: 520px;
 }
 
+.shop-level-form {
+  max-width: 560px;
+}
+
+.shop-level-editor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.shop-level-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(108px, 132px);
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.shop-level-editor-row__label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.shop-level-editor-row__label > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.shop-level-editor-row__label strong,
+.shop-level-editor-row__label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-level-editor-row__label strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.shop-level-editor-row__label small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .bulletin-card {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1282,6 +1388,56 @@ textarea:focus {
   border-radius: 50%;
   background: var(--dot-color, var(--green));
   box-shadow: 0 0 0 1px rgba(23, 33, 30, 0.22);
+}
+
+.shop-name-with-level {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.shop-name-with-level > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-level-icon {
+  --shop-level-color: #8c9691;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  background: var(--shop-level-color);
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 3px rgba(23, 33, 30, 0.15);
+}
+
+.shop-level-icon--pending {
+  opacity: 0.38;
+}
+
+.shop-level-icon--circle {
+  border-radius: 50%;
+}
+
+.shop-level-icon--triangle {
+  clip-path: polygon(50% 4%, 96% 96%, 4% 96%);
+}
+
+.shop-level-icon--square {
+  border-radius: 2px;
+}
+
+.shop-level-icon--pentagon {
+  clip-path: polygon(50% 2%, 98% 38%, 80% 98%, 20% 98%, 2% 38%);
+}
+
+.shop-level-icon--hexagon {
+  clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%);
 }
 
 .list-row--static {

@@ -1,5 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { competitionRadiusForLevel } from "./constants";
+import {
+  DEFAULT_SHOP_LEVEL_BONUS_POINTS,
+  DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+  competitionRadiusForLevel
+} from "./constants";
 import {
   baseHourlyRate,
   competitionPressure,
@@ -21,7 +25,9 @@ import type {
   PlayerProfile,
   RestockPinInput,
   ScoreHistoryPoint,
-  UpdateBulletinInput
+  ShopLevelConfig,
+  UpdateBulletinInput,
+  UpdateShopLevelConfigInput
 } from "../types";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -51,6 +57,10 @@ const PLAYER_COLORS = [
   "#9f1239"
 ];
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+const DEFAULT_SHOP_LEVEL_CONFIG: ShopLevelConfig = {
+  thresholdsPoints: DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+  bonusPointsPerLevel: DEFAULT_SHOP_LEVEL_BONUS_POINTS
+};
 
 export function hasSupabaseConfig(): boolean {
   return Boolean(supabaseUrl && supabaseAnonKey);
@@ -101,18 +111,20 @@ class SupabaseGameAdapter implements GameAdapter {
         scoreHistory: [],
         bulletins: [],
         demandEvents: [],
+        shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
         isDemoMode: false
       };
     }
 
     await this.supabase.rpc("settle_player_income");
 
-    const [profile, pins, leaderboard, bulletins, demandEvents] = await Promise.all([
+    const [profile, pins, leaderboard, bulletins, demandEvents, shopLevelConfig] = await Promise.all([
       this.fetchProfile(user.id),
       this.fetchPins(),
       this.fetchLeaderboard(),
       this.fetchBulletins(),
-      this.fetchDemandEvents()
+      this.fetchDemandEvents(),
+      this.fetchShopLevelConfig()
     ]);
     const scoreHistory = await this.fetchScoreHistory(leaderboard);
 
@@ -123,6 +135,7 @@ class SupabaseGameAdapter implements GameAdapter {
       scoreHistory,
       bulletins,
       demandEvents,
+      shopLevelConfig,
       isDemoMode: false
     };
   }
@@ -240,6 +253,15 @@ class SupabaseGameAdapter implements GameAdapter {
     return this.refresh();
   }
 
+  async updateShopLevelConfig(input: UpdateShopLevelConfigInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("update_shop_level_config", {
+      p_thresholds_points: input.thresholdsPoints
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
   private async fetchProfile(userId: string): Promise<PlayerProfile | null> {
     const withRole = await this.supabase
       .from("profiles")
@@ -338,6 +360,20 @@ class SupabaseGameAdapter implements GameAdapter {
     return (data ?? []).map(mapDemandEventRow).filter(isActiveDemandEvent);
   }
 
+  private async fetchShopLevelConfig(): Promise<ShopLevelConfig> {
+    const { data, error } = await this.supabase.rpc("get_shop_level_config");
+
+    if (error) {
+      const message = error.message ?? "";
+      if (error.code === "PGRST202" || message.includes("get_shop_level_config")) {
+        return DEFAULT_SHOP_LEVEL_CONFIG;
+      }
+      throw error;
+    }
+
+    return normalizeShopLevelConfig(data);
+  }
+
   private async uploadBulletinImage(file: File): Promise<string> {
     const {
       data: { user }
@@ -430,7 +466,8 @@ function mapPinRow(row: Record<string, unknown>): GamePin {
     expiresAt: row.expires_at ? String(row.expires_at) : null,
     status: row.status as GamePin["status"],
     currentHourlyRate: Number(row.current_hourly_rate),
-    competitionPressure: Number(row.competition_pressure)
+    competitionPressure: Number(row.competition_pressure),
+    lifetimeIncome: safeNumber(row.lifetime_income_points, 0)
   };
 }
 
@@ -457,7 +494,8 @@ function mapDirectPinRow(row: Record<string, unknown>): GamePin {
     expiresAt: row.expires_at ? String(row.expires_at) : null,
     status: getDirectPinStatus(row),
     currentHourlyRate: 0,
-    competitionPressure: 0
+    competitionPressure: 0,
+    lifetimeIncome: 0
   };
 }
 
@@ -547,6 +585,34 @@ function mapDemandEventRow(row: Record<string, unknown>): DemandEvent {
   };
 }
 
+function normalizeShopLevelConfig(value: unknown): ShopLevelConfig {
+  if (typeof value !== "object" || value === null) return DEFAULT_SHOP_LEVEL_CONFIG;
+
+  const record = value as Record<string, unknown>;
+  const rawThresholds = Array.isArray(record.thresholds_points)
+    ? record.thresholds_points
+    : Array.isArray(record.thresholdsPoints)
+      ? record.thresholdsPoints
+      : DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS;
+  const thresholdsPoints = rawThresholds
+    .map((threshold) => Number(threshold))
+    .filter((threshold) => Number.isFinite(threshold) && threshold > 0)
+    .slice(0, 5);
+  const bonusPointsPerLevel = safeNumber(
+    record.bonus_points_per_level ?? record.bonusPointsPerLevel,
+    DEFAULT_SHOP_LEVEL_BONUS_POINTS
+  );
+
+  return {
+    thresholdsPoints: thresholdsPoints.length === 5
+      ? thresholdsPoints
+      : DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+    bonusPointsPerLevel: bonusPointsPerLevel > 0
+      ? bonusPointsPerLevel
+      : DEFAULT_SHOP_LEVEL_BONUS_POINTS
+  };
+}
+
 function isActiveDemandEvent(event: DemandEvent): boolean {
   const endsAt = new Date(event.endsAt).getTime();
 
@@ -563,6 +629,11 @@ function isActiveDemandEvent(event: DemandEvent): boolean {
     Number.isFinite(endsAt) &&
     endsAt > Date.now()
   );
+}
+
+function safeNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function getRpcStringField(value: unknown, key: string): string | null {

@@ -32,6 +32,7 @@ export interface GamePin {
   status: PinStatus;
   currentHourlyRate: number;
   competitionPressure: number;
+  lifetimeIncome: number;
 }
 
 export interface LeaderboardRow {
@@ -74,6 +75,11 @@ export interface DemandEvent {
   endedAt: string | null;
 }
 
+export interface ShopLevelConfig {
+  thresholdsPoints: number[];
+  bonusPointsPerLevel: number;
+}
+
 export interface GameState {
   profile: PlayerProfile | null;
   pins: GamePin[];
@@ -81,6 +87,7 @@ export interface GameState {
   scoreHistory: ScoreHistoryPoint[];
   bulletins: Bulletin[];
   demandEvents: DemandEvent[];
+  shopLevelConfig: ShopLevelConfig;
   isDemoMode: boolean;
 }
 
@@ -137,6 +144,10 @@ export interface EndDemandEventInput {
   eventId: string;
 }
 
+export interface UpdateShopLevelConfigInput {
+  thresholdsPoints: number[];
+}
+
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
@@ -151,4 +162,5 @@ export interface GameAdapter {
   deleteBulletin(input: DeleteBulletinInput): Promise<GameState>;
   beginDemandEvent(input: BeginDemandEventInput): Promise<GameState>;
   endDemandEvent(input: EndDemandEventInput): Promise<GameState>;
+  updateShopLevelConfig(input: UpdateShopLevelConfigInput): Promise<GameState>;
 }

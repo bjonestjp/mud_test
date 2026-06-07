@@ -15,6 +15,9 @@ export const GAME_CONFIG = {
   maxAcceptedAccuracyM: 100
 };
 
+export const DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS = [25, 50, 90, 150, 250];
+export const DEFAULT_SHOP_LEVEL_BONUS_POINTS = 1;
+
 export function competitionRadiusForLevel(radiusLevel: number | null | undefined): number {
   const safeLevel = Math.max(
     0,

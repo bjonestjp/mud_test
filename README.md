@@ -55,6 +55,8 @@ The frontend calls these Supabase RPCs:
 - `get_demand_events`
 - `begin_demand_event`
 - `end_demand_event`
+- `get_shop_level_config`
+- `update_shop_level_config`
 
 ## Current MVP Scope
 
@@ -70,6 +72,7 @@ The frontend calls these Supabase RPCs:
 - Player-coloured pins, with own pins and rival pins both competing
 - Admin-authored bulletin messages with images
 - Admin-created double demand zones that temporarily double income inside a map radius
+- Shop lifetime sales levels with editable admin thresholds and income bonuses
 - Automatic passive income settlement
 - Immediate pin visibility
 - Demo-mode fallback when Supabase is not configured

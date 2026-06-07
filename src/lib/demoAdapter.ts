@@ -1,4 +1,9 @@
-import { competitionRadiusForLevel, GAME_CONFIG } from "./constants";
+import {
+  DEFAULT_SHOP_LEVEL_BONUS_POINTS,
+  DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+  competitionRadiusForLevel,
+  GAME_CONFIG
+} from "./constants";
 import {
   baseHourlyRate,
   competitionPressure,
@@ -20,7 +25,9 @@ import type {
   PlayerProfile,
   RestockPinInput,
   ScoreHistoryPoint,
-  UpdateBulletinInput
+  ShopLevelConfig,
+  UpdateBulletinInput,
+  UpdateShopLevelConfigInput
 } from "../types";
 
 const STORAGE_KEY = "coffee-pin-demo-state-v1";
@@ -55,6 +62,10 @@ const FALLBACK_PLAYER_COLORS = [
 ];
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const DEMO_BULLETIN_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 520'%3E%3Crect width='1200' height='520' fill='%2321745c'/%3E%3Cpath d='M0 390 C180 330 280 450 430 390 C560 338 690 318 840 372 C1010 432 1100 350 1200 302 L1200 520 L0 520 Z' fill='%23f4f1e8' opacity='.96'/%3E%3Ccircle cx='938' cy='156' r='78' fill='%23f0ae49'/%3E%3Crect x='130' y='146' width='388' height='210' rx='24' fill='%23ffffff' opacity='.94'/%3E%3Crect x='170' y='184' width='184' height='26' rx='13' fill='%2321745c'/%3E%3Crect x='170' y='236' width='280' height='18' rx='9' fill='%2369736f' opacity='.55'/%3E%3Crect x='170' y='276' width='236' height='18' rx='9' fill='%2369736f' opacity='.45'/%3E%3C/svg%3E";
+const DEFAULT_SHOP_LEVEL_CONFIG: ShopLevelConfig = {
+  thresholdsPoints: DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+  bonusPointsPerLevel: DEFAULT_SHOP_LEVEL_BONUS_POINTS
+};
 
 interface DemoStore {
   profile: PlayerProfile;
@@ -62,6 +73,7 @@ interface DemoStore {
   leaderboard: LeaderboardRow[];
   bulletins: Bulletin[];
   demandEvents: DemandEvent[];
+  shopLevelConfig: ShopLevelConfig;
   lastSettledAt: string;
 }
 
@@ -126,7 +138,8 @@ export class DemoAdapter implements GameAdapter {
         : null,
       status: "stocked",
       currentHourlyRate: 0,
-      competitionPressure: 0
+      competitionPressure: 0,
+      lifetimeIncome: 0
     };
 
     pin.busyLabel = getBusyLabel(pin.busyScore);
@@ -263,6 +276,18 @@ export class DemoAdapter implements GameAdapter {
     return this.state();
   }
 
+  async updateShopLevelConfig(input: UpdateShopLevelConfigInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can edit shop levels.");
+
+    this.store.shopLevelConfig = normalizeShopLevelConfig({
+      thresholdsPoints: input.thresholdsPoints,
+      bonusPointsPerLevel: this.store.shopLevelConfig.bonusPointsPerLevel
+    });
+    this.recalculatePins();
+    saveStore(this.store);
+    return this.state();
+  }
+
   async restockPin(input: RestockPinInput): Promise<GameState> {
     this.settleIncome();
     const pin = this.store.pins.find((item) => item.id === input.pinId);
@@ -301,6 +326,7 @@ export class DemoAdapter implements GameAdapter {
       scoreHistory: buildDemoScoreHistory(this.store),
       bulletins: this.store.bulletins,
       demandEvents: activeDemandEvents(this.store.demandEvents),
+      shopLevelConfig: this.store.shopLevelConfig,
       isDemoMode: true
     };
   }
@@ -316,7 +342,9 @@ export class DemoAdapter implements GameAdapter {
     for (const pin of this.store.pins) {
       refreshPinStatus(pin, now);
       if (pin.ownerId === DEMO_PLAYER_ID && pin.status === "stocked") {
-        earned += pin.currentHourlyRate * hours;
+        const pinEarned = pin.currentHourlyRate * hours;
+        pin.lifetimeIncome += pinEarned;
+        earned += pinEarned;
       }
     }
 
@@ -349,10 +377,12 @@ export class DemoAdapter implements GameAdapter {
       }, 0);
 
       const multiplier = demandMultiplierForPin(pin, this.store.demandEvents, now);
+      const level = shopLevelForIncome(pin.lifetimeIncome, this.store.shopLevelConfig);
+      const levelBonus = level * this.store.shopLevelConfig.bonusPointsPerLevel;
 
       pin.competitionPressure = Number(totalPressure.toFixed(3));
       pin.currentHourlyRate = Number(
-        ((baseHourlyRate(pin.busyScore) * multiplier) / (1 + totalPressure)).toFixed(2)
+        (((baseHourlyRate(pin.busyScore) * multiplier) / (1 + totalPressure)) + levelBonus).toFixed(2)
       );
     }
 
@@ -399,6 +429,7 @@ function createInitialStore(): DemoStore {
     leaderboard: [],
     bulletins: [createDemoBulletin(now)],
     demandEvents: [],
+    shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
     lastSettledAt: now.toISOString()
   };
 
@@ -429,6 +460,7 @@ function normalizeStore(candidate: Partial<DemoStore>): DemoStore {
     leaderboard: [],
     bulletins: normalizeBulletins(candidate.bulletins, fallback.bulletins),
     demandEvents: normalizeDemandEvents(candidate.demandEvents),
+    shopLevelConfig: normalizeShopLevelConfig(candidate.shopLevelConfig),
     lastSettledAt: candidate.lastSettledAt || new Date().toISOString()
   };
 
@@ -477,7 +509,10 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
       : 0,
     competitionPressure: Number.isFinite(pin?.competitionPressure)
       ? Number(pin?.competitionPressure)
-      : 0
+      : 0,
+    lifetimeIncome: Number.isFinite(pin?.lifetimeIncome)
+      ? Math.max(0, Number(pin?.lifetimeIncome))
+      : safeFallback.lifetimeIncome
   };
 }
 
@@ -575,6 +610,53 @@ function demandMultiplierForPin(pin: GamePin, events: DemandEvent[], now: Date):
   }, 1);
 }
 
+function normalizeShopLevelConfig(candidate: unknown): ShopLevelConfig {
+  if (typeof candidate !== "object" || candidate === null) return DEFAULT_SHOP_LEVEL_CONFIG;
+
+  const record = candidate as Record<string, unknown>;
+  const thresholdsPoints = Array.isArray(record.thresholdsPoints)
+    ? record.thresholdsPoints.map(Number)
+    : Array.isArray(record.thresholds_points)
+      ? record.thresholds_points.map(Number)
+      : DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS;
+  const cleanedThresholds = thresholdsPoints
+    .filter((threshold) => Number.isFinite(threshold) && threshold > 0)
+    .slice(0, 5);
+  const bonusPointsPerLevel = Number(
+    record.bonusPointsPerLevel ?? record.bonus_points_per_level
+  );
+
+  return {
+    thresholdsPoints: cleanedThresholds.length === 5
+      ? cleanedThresholds
+      : DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+    bonusPointsPerLevel: Number.isFinite(bonusPointsPerLevel) && bonusPointsPerLevel > 0
+      ? bonusPointsPerLevel
+      : DEFAULT_SHOP_LEVEL_BONUS_POINTS
+  };
+}
+
+function shopLevelForIncome(lifetimeIncome: number, config: ShopLevelConfig): number {
+  return config.thresholdsPoints.reduce((level, threshold) => {
+    return lifetimeIncome >= threshold ? level + 1 : level;
+  }, 0);
+}
+
+function demoLifetimeIncomeForPin(pinId: string): number {
+  switch (pinId) {
+    case "pin-princes":
+      return 178;
+    case "pin-meadows":
+      return 64;
+    case "pin-leith":
+      return 104;
+    case "pin-stockbridge":
+      return 22;
+    default:
+      return 0;
+  }
+}
+
 function createDemoPin(
   id: string,
   ownerId: string,
@@ -604,7 +686,8 @@ function createDemoPin(
     expiresAt: null,
     status: "stocked",
     currentHourlyRate: 0,
-    competitionPressure: 0
+    competitionPressure: 0,
+    lifetimeIncome: demoLifetimeIncomeForPin(id)
   };
 }
 

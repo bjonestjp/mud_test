@@ -30,6 +30,7 @@ The migration creates:
 - `currency_ledger`
 - `location_score_cache`
 - `demand_events`
+- Shop level config and RPCs
 - Game RPCs
 - Row Level Security policies
 

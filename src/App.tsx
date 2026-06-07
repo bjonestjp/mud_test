@@ -23,13 +23,20 @@ import type { LocationFocus } from "./components/GameMap";
 import { createGameAdapter } from "./lib/gameAdapter";
 import {
   competitionRadiusForLevel,
+  DEFAULT_SHOP_LEVEL_BONUS_POINTS,
+  DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
   EDINBURGH_CENTER,
   GAME_CONFIG,
   pointsToTokenProgress,
   pointsToWholeTokens
 } from "./lib/constants";
 import { requestCurrentLocation } from "./lib/geo";
-import type { Bulletin, DemandEvent, GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint } from "./types";
+import type { Bulletin, DemandEvent, GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint, ShopLevelConfig } from "./types";
+
+const DEFAULT_SHOP_LEVEL_CONFIG: ShopLevelConfig = {
+  thresholdsPoints: DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+  bonusPointsPerLevel: DEFAULT_SHOP_LEVEL_BONUS_POINTS
+};
 
 const EMPTY_STATE: GameState = {
   profile: null,
@@ -38,10 +45,11 @@ const EMPTY_STATE: GameState = {
   scoreHistory: [],
   bulletins: [],
   demandEvents: [],
+  shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
   isDemoMode: false
 };
 
-type ActivePanel = "build" | "shops" | "leaderboard" | "messages" | "admin" | "bulletin" | "event" | null;
+type ActivePanel = "build" | "shops" | "leaderboard" | "messages" | "admin" | "bulletin" | "event" | "levels" | null;
 
 interface Notice {
   message: string;
@@ -83,6 +91,27 @@ const SHOP_TYPES: ShopTypeOption[] = [
   }
 ];
 
+const SHOP_LEVEL_VISUALS = [
+  { label: "Grey Circle", shape: "circle", color: "#8c9691" },
+  { label: "Green Triangle", shape: "triangle", color: "#21745c" },
+  { label: "Blue Square", shape: "square", color: "#2f5f9f" },
+  { label: "Purple Pentagon", shape: "pentagon", color: "#7a4ab8" },
+  { label: "Gold Hexagon", shape: "hexagon", color: "#d49a25" }
+] as const;
+
+type ShopLevelShape = (typeof SHOP_LEVEL_VISUALS)[number]["shape"];
+
+interface ShopLevelModel {
+  currentLevel: number;
+  currentVisual: (typeof SHOP_LEVEL_VISUALS)[number] | null;
+  nextLevel: number | null;
+  nextVisual: (typeof SHOP_LEVEL_VISUALS)[number] | null;
+  previousThreshold: number;
+  nextThreshold: number | null;
+  progress: number;
+  bonusPointsPerHour: number;
+}
+
 export default function App() {
   const adapter = useMemo(() => createGameAdapter(), []);
   const [game, setGame] = useState<GameState>(EMPTY_STATE);
@@ -99,6 +128,9 @@ export default function App() {
   const [pendingDemandEventCenter, setPendingDemandEventCenter] = useState<EventCenter | null>(null);
   const [eventDurationHours, setEventDurationHours] = useState("2");
   const [eventRadiusM, setEventRadiusM] = useState("300");
+  const [shopLevelThresholdInputs, setShopLevelThresholdInputs] = useState<string[]>(
+    () => DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS.map(pointsToTokenInput)
+  );
   const [bulletinTitle, setBulletinTitle] = useState("");
   const [bulletinBody, setBulletinBody] = useState("");
   const [bulletinImageFile, setBulletinImageFile] = useState<File | null>(null);
@@ -123,6 +155,11 @@ export default function App() {
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
   const activeDemandEvents = game.demandEvents.filter((event) => isDemandEventActive(event, nowMs));
+  const shopLevelConfig = useMemo(
+    () => normalizeShopLevelConfig(game.shopLevelConfig),
+    [game.shopLevelConfig]
+  );
+  const shopLevelThresholdKey = shopLevelConfig.thresholdsPoints.join(",");
 
   const run = useCallback(
     async (work: () => Promise<GameState | void>, success?: string) => {
@@ -192,6 +229,12 @@ export default function App() {
 
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setShopLevelThresholdInputs(
+      shopLevelConfig.thresholdsPoints.map(pointsToTokenInput)
+    );
+  }, [shopLevelThresholdKey, shopLevelConfig.thresholdsPoints]);
 
   useEffect(() => {
     if (!bulletinImageFile) {
@@ -342,6 +385,11 @@ export default function App() {
     setActivePanel("admin");
   };
 
+  const startShopLevelEditor = () => {
+    setShopLevelThresholdInputs(shopLevelConfig.thresholdsPoints.map(pointsToTokenInput));
+    setActivePanel("levels");
+  };
+
   const startEditBulletin = (bulletin: Bulletin) => {
     setBulletinTitle(bulletin.title);
     setBulletinBody(bulletin.body);
@@ -451,6 +499,20 @@ export default function App() {
     void run(() => adapter.endDemandEvent({ eventId }), "Event ended");
   };
 
+  const submitShopLevelConfig = (event: React.FormEvent) => {
+    event.preventDefault();
+
+    void run(async () => {
+      const thresholdsPoints = shopLevelThresholdInputs.map((value, index) => {
+        const tokens = readBoundedNumber(value, SHOP_LEVEL_VISUALS[index].label, 0.01, 999);
+        return Math.round(tokens * GAME_CONFIG.tokenUnit * 100) / 100;
+      });
+
+      ensureIncreasingThresholds(thresholdsPoints);
+      return adapter.updateShopLevelConfig({ thresholdsPoints });
+    }, "Shop levels updated");
+  };
+
   if (!game.profile && !game.isDemoMode) {
     return (
       <main className="auth-screen">
@@ -550,13 +612,15 @@ export default function App() {
           {selectedOwnPin ? (
             <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
               <ColorDot color={selectedOwnPin.ownerColor} />
-              <span>{selectedOwnPin.name}</span>
+              <ShopNameWithLevel pin={selectedOwnPin} config={shopLevelConfig} />
             </button>
           ) : (
             <div className="selected-shop-label">
               <ColorDot color={selectedPin.ownerColor} />
               <span className="selected-shop-copy">
-                <strong>{selectedPin.name}</strong>
+                <strong>
+                  <ShopNameWithLevel pin={selectedPin} config={shopLevelConfig} />
+                </strong>
                 <small>{selectedPin.ownerName}</small>
               </span>
             </div>
@@ -626,7 +690,7 @@ export default function App() {
               {activePanel === "shops" ? <Users size={20} /> : null}
               {activePanel === "leaderboard" ? <Trophy size={20} /> : null}
               {activePanel === "messages" ? <MessageSquare size={20} /> : null}
-              {activePanel === "admin" || activePanel === "bulletin" ? <ShieldCheck size={20} /> : null}
+              {activePanel === "admin" || activePanel === "bulletin" || activePanel === "levels" ? <ShieldCheck size={20} /> : null}
               {activePanel === "event" ? <Zap size={20} /> : null}
               <h2>{getPanelTitle(activePanel)}</h2>
             </div>
@@ -655,6 +719,7 @@ export default function App() {
               <YourShopsPanel
                 pins={ownPins}
                 selectedPin={selectedOwnPin}
+                shopLevelConfig={shopLevelConfig}
                 isBusy={isBusy}
                 nowMs={nowMs}
                 onSelectPin={setSelectedPinId}
@@ -684,6 +749,7 @@ export default function App() {
                 isBusy={isBusy}
                 onCreateBulletin={startCreateBulletin}
                 onBeginEvent={startDemandEventCenterSelection}
+                onEditShopLevels={startShopLevelEditor}
                 onEndEvent={endDemandEvent}
               />
             ) : null}
@@ -716,6 +782,21 @@ export default function App() {
                 onSubmit={submitDemandEvent}
               />
             ) : null}
+
+            {activePanel === "levels" ? (
+              <ShopLevelsPanel
+                inputs={shopLevelThresholdInputs}
+                config={shopLevelConfig}
+                isBusy={isBusy}
+                onInputChange={(index, value) => {
+                  setShopLevelThresholdInputs((current) =>
+                    current.map((item, itemIndex) => itemIndex === index ? value : item)
+                  );
+                }}
+                onBack={() => setActivePanel("admin")}
+                onSubmit={submitShopLevelConfig}
+              />
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -723,6 +804,7 @@ export default function App() {
       {pendingRestockPin ? (
         <RestockConfirmPanel
           pin={pendingRestockPin}
+          shopLevelConfig={shopLevelConfig}
           pointsBalance={game.profile?.pointsBalance ?? 0}
           isBusy={isBusy}
           onConfirm={confirmRestock}
@@ -733,6 +815,7 @@ export default function App() {
       {pendingRadiusUpgradePin ? (
         <RadiusUpgradeConfirmPanel
           pin={pendingRadiusUpgradePin}
+          shopLevelConfig={shopLevelConfig}
           pointsBalance={game.profile?.pointsBalance ?? 0}
           isBusy={isBusy}
           onConfirm={confirmRadiusUpgrade}
@@ -908,6 +991,7 @@ function EventCenterConfirmBar({
 function YourShopsPanel({
   pins,
   selectedPin,
+  shopLevelConfig,
   isBusy,
   nowMs,
   onSelectPin,
@@ -916,6 +1000,7 @@ function YourShopsPanel({
 }: {
   pins: GamePin[];
   selectedPin: GamePin | null;
+  shopLevelConfig: ShopLevelConfig;
   isBusy: boolean;
   nowMs: number;
   onSelectPin: (pinId: string) => void;
@@ -940,13 +1025,14 @@ function YourShopsPanel({
             >
               <span className="list-row__label">
                 <ColorDot color={pin.ownerColor} />
-                {pin.name}
+                <ShopNameWithLevel pin={pin} config={shopLevelConfig} />
               </span>
               <strong>{formatHourlyTokenRate(pin.currentHourlyRate)}</strong>
             </button>
             {isSelected ? (
               <PinDetail
                 pin={pin}
+                shopLevelConfig={shopLevelConfig}
                 isOwner
                 nowMs={nowMs}
                 onRequestRestock={() => onRequestRestock(pin.id)}
@@ -1045,6 +1131,7 @@ function AdminPanel({
   isBusy,
   onCreateBulletin,
   onBeginEvent,
+  onEditShopLevels,
   onEndEvent
 }: {
   demandEvents: DemandEvent[];
@@ -1052,6 +1139,7 @@ function AdminPanel({
   isBusy: boolean;
   onCreateBulletin: () => void;
   onBeginEvent: () => void;
+  onEditShopLevels: () => void;
   onEndEvent: (eventId: string) => void;
 }) {
   return (
@@ -1069,6 +1157,13 @@ function AdminPanel({
           <small>Create a timed double income zone on the map.</small>
         </span>
         <Zap size={20} />
+      </button>
+      <button className="shop-type-button" type="button" onClick={onEditShopLevels}>
+        <span>
+          <strong>Shop Levels</strong>
+          <small>Edit lifetime sales thresholds for testing.</small>
+        </span>
+        <Trophy size={20} />
       </button>
       {demandEvents.length > 0 ? (
         <section className="admin-event-list" aria-label="Active events">
@@ -1156,6 +1251,64 @@ function DemandEventPanel({
       <button className="primary-action" type="submit" disabled={isBusy}>
         <Zap size={18} />
         Begin Event
+      </button>
+    </form>
+  );
+}
+
+function ShopLevelsPanel({
+  inputs,
+  config,
+  isBusy,
+  onInputChange,
+  onBack,
+  onSubmit
+}: {
+  inputs: string[];
+  config: ShopLevelConfig;
+  isBusy: boolean;
+  onInputChange: (index: number, value: string) => void;
+  onBack: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+}) {
+  return (
+    <form className="panel-stack shop-level-form" onSubmit={onSubmit}>
+      <button className="text-action" type="button" onClick={onBack}>
+        Back
+      </button>
+      <div className="selected-build-type">
+        <span>
+          <strong>Lifetime Sales Levels</strong>
+          <small>{formatHourlyTokenRate(config.bonusPointsPerLevel)} per level</small>
+        </span>
+        <b>5 levels</b>
+      </div>
+      <div className="shop-level-editor-list">
+        {SHOP_LEVEL_VISUALS.map((visual, index) => (
+          <label className="shop-level-editor-row" key={visual.label}>
+            <span className="shop-level-editor-row__label">
+              <ShopLevelIcon visual={visual} />
+              <span>
+                <strong>{visual.label}</strong>
+                <small>Level {index + 1}</small>
+              </span>
+            </span>
+            <input
+              value={inputs[index] ?? ""}
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              max="999"
+              step="0.01"
+              onChange={(event) => onInputChange(index, event.target.value)}
+              required
+            />
+          </label>
+        ))}
+      </div>
+      <button className="primary-action" type="submit" disabled={isBusy}>
+        <Trophy size={18} />
+        Save Levels
       </button>
     </form>
   );
@@ -1344,6 +1497,8 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
       return "Bulletin";
     case "event":
       return "Begin Event";
+    case "levels":
+      return "Shop Levels";
   }
 }
 
@@ -1599,6 +1754,55 @@ function formatCoordinatePair(center: EventCenter): string {
   return `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`;
 }
 
+function normalizeShopLevelConfig(config: ShopLevelConfig | null | undefined): ShopLevelConfig {
+  const thresholds = Array.isArray(config?.thresholdsPoints)
+    ? config.thresholdsPoints
+        .map(Number)
+        .filter((threshold) => Number.isFinite(threshold) && threshold > 0)
+        .slice(0, 5)
+    : DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS;
+  const bonusPointsPerLevel = Number(config?.bonusPointsPerLevel);
+
+  return {
+    thresholdsPoints: thresholds.length === 5
+      ? thresholds
+      : DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
+    bonusPointsPerLevel: Number.isFinite(bonusPointsPerLevel) && bonusPointsPerLevel > 0
+      ? bonusPointsPerLevel
+      : DEFAULT_SHOP_LEVEL_BONUS_POINTS
+  };
+}
+
+function getShopLevelModel(lifetimeIncome: number, config: ShopLevelConfig): ShopLevelModel {
+  const safeConfig = normalizeShopLevelConfig(config);
+  const safeLifetime = Math.max(0, Number(lifetimeIncome) || 0);
+  const currentLevel = safeConfig.thresholdsPoints.reduce((level, threshold) => {
+    return safeLifetime >= threshold ? level + 1 : level;
+  }, 0);
+  const previousThreshold = currentLevel > 0
+    ? safeConfig.thresholdsPoints[currentLevel - 1]
+    : 0;
+  const nextThreshold = currentLevel < safeConfig.thresholdsPoints.length
+    ? safeConfig.thresholdsPoints[currentLevel]
+    : null;
+  const nextSpan = nextThreshold === null
+    ? 1
+    : Math.max(1, nextThreshold - previousThreshold);
+
+  return {
+    currentLevel,
+    currentVisual: currentLevel > 0 ? SHOP_LEVEL_VISUALS[currentLevel - 1] : null,
+    nextLevel: nextThreshold === null ? null : currentLevel + 1,
+    nextVisual: nextThreshold === null ? null : SHOP_LEVEL_VISUALS[currentLevel],
+    previousThreshold,
+    nextThreshold,
+    progress: nextThreshold === null
+      ? 1
+      : Math.max(0, Math.min(1, (safeLifetime - previousThreshold) / nextSpan)),
+    bonusPointsPerHour: currentLevel * safeConfig.bonusPointsPerLevel
+  };
+}
+
 function TokenProgressRing({
   progress,
   color,
@@ -1627,6 +1831,7 @@ function TokenProgressRing({
 
 function PinDetail({
   pin,
+  shopLevelConfig,
   isOwner,
   nowMs,
   onRequestRestock,
@@ -1634,6 +1839,7 @@ function PinDetail({
   isBusy
 }: {
   pin: GamePin;
+  shopLevelConfig: ShopLevelConfig;
   isOwner: boolean;
   nowMs: number;
   onRequestRestock: () => void;
@@ -1667,6 +1873,7 @@ function PinDetail({
         <span>Reach</span>
         <strong>{formatRadius(pin)}</strong>
       </div>
+      <ShopLevelProgressStrip pin={pin} config={shopLevelConfig} />
       <RestockStatusStrip pin={pin} nowMs={nowMs} />
       {isOwner && pin.pinType === "standard" ? (
         <button className="secondary-action" type="button" onClick={onRequestRestock} disabled={isBusy}>
@@ -1709,12 +1916,14 @@ function RestockStatusStrip({
 
 function RestockConfirmPanel({
   pin,
+  shopLevelConfig,
   pointsBalance,
   isBusy,
   onConfirm,
   onCancel
 }: {
   pin: GamePin;
+  shopLevelConfig: ShopLevelConfig;
   pointsBalance: number;
   isBusy: boolean;
   onConfirm: () => void;
@@ -1740,7 +1949,9 @@ function RestockConfirmPanel({
           </p>
           <div className="selected-build-type">
             <span>
-              <strong>{pin.name}</strong>
+              <strong>
+                <ShopNameWithLevel pin={pin} config={shopLevelConfig} />
+              </strong>
               <small>{pin.busyLabel} · {formatHourlyTokenRate(pin.currentHourlyRate)}</small>
             </span>
             <b>{formatCompactTokenCost(GAME_CONFIG.restockCost)}</b>
@@ -1768,12 +1979,14 @@ function RestockConfirmPanel({
 
 function RadiusUpgradeConfirmPanel({
   pin,
+  shopLevelConfig,
   pointsBalance,
   isBusy,
   onConfirm,
   onCancel
 }: {
   pin: GamePin;
+  shopLevelConfig: ShopLevelConfig;
   pointsBalance: number;
   isBusy: boolean;
   onConfirm: () => void;
@@ -1801,7 +2014,9 @@ function RadiusUpgradeConfirmPanel({
           </p>
           <div className="selected-build-type">
             <span>
-              <strong>{pin.name}</strong>
+              <strong>
+                <ShopNameWithLevel pin={pin} config={shopLevelConfig} />
+              </strong>
               <small>{currentRadius}m to {nextRadius}m</small>
             </span>
             <b>{formatCompactTokenCost(GAME_CONFIG.radiusUpgradeCost)}</b>
@@ -1914,6 +2129,22 @@ function readBoundedNumber(value: string, label: string, min: number, max: numbe
     throw new Error(`${label} must be between ${min} and ${max}.`);
   }
   return parsed;
+}
+
+function ensureIncreasingThresholds(thresholdsPoints: number[]): void {
+  if (thresholdsPoints.length !== SHOP_LEVEL_VISUALS.length) {
+    throw new Error("Enter exactly five shop level thresholds.");
+  }
+
+  for (let index = 0; index < thresholdsPoints.length; index += 1) {
+    if (thresholdsPoints[index] <= 0) {
+      throw new Error("Shop level thresholds must be positive.");
+    }
+
+    if (index > 0 && thresholdsPoints[index] <= thresholdsPoints[index - 1]) {
+      throw new Error("Shop level thresholds must increase.");
+    }
+  }
 }
 
 async function getFreshPlayerLocation(
@@ -2038,6 +2269,102 @@ function formatCompactTokenCost(points: number): string {
     .toFixed(2)
     .replace(/^0\./, ".")
     .replace(/\.00$/, "");
+}
+
+function formatSalesAmount(points: number): string {
+  return (Math.max(0, points) / GAME_CONFIG.tokenUnit).toFixed(2);
+}
+
+function pointsToTokenInput(points: number): string {
+  return (points / GAME_CONFIG.tokenUnit)
+    .toFixed(2)
+    .replace(/\.?0+$/, "");
+}
+
+function ShopNameWithLevel({
+  pin,
+  config
+}: {
+  pin: GamePin;
+  config: ShopLevelConfig;
+}) {
+  const level = getShopLevelModel(pin.lifetimeIncome, config);
+  const visual = level.currentVisual ?? level.nextVisual;
+
+  return (
+    <span className="shop-name-with-level">
+      <span>{pin.name}</span>
+      {visual ? (
+        <ShopLevelIcon
+          visual={visual}
+          isPending={!level.currentVisual}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+function ShopLevelProgressStrip({
+  pin,
+  config
+}: {
+  pin: GamePin;
+  config: ShopLevelConfig;
+}) {
+  const level = getShopLevelModel(pin.lifetimeIncome, config);
+  const progressColor = level.nextVisual?.color ?? level.currentVisual?.color ?? "#d49a25";
+  const salesLabel = level.nextThreshold
+    ? `${formatSalesAmount(pin.lifetimeIncome)} / ${formatSalesAmount(level.nextThreshold)} sales`
+    : `${formatSalesAmount(pin.lifetimeIncome)} sales · max level`;
+
+  return (
+    <div
+      className="shop-level-progress"
+      style={{
+        "--shop-level-progress": `${level.progress}`,
+        "--shop-level-color": progressColor
+      } as Record<string, string>}
+    >
+      <div className="shop-level-progress__copy">
+        <span>
+          {level.currentVisual ? (
+            <ShopLevelIcon visual={level.currentVisual} />
+          ) : (
+            <ShopLevelIcon visual={SHOP_LEVEL_VISUALS[0]} isPending />
+          )}
+          <strong>{salesLabel}</strong>
+        </span>
+        <small>
+          {level.nextVisual
+            ? `Next: ${level.nextVisual.label}`
+            : `${level.currentVisual?.label ?? "Max Level"} · ${formatHourlyTokenRate(level.bonusPointsPerHour)}`}
+        </small>
+      </div>
+    </div>
+  );
+}
+
+function ShopLevelIcon({
+  visual,
+  isPending = false
+}: {
+  visual: (typeof SHOP_LEVEL_VISUALS)[number];
+  isPending?: boolean;
+}) {
+  return (
+    <i
+      className={[
+        "shop-level-icon",
+        `shop-level-icon--${visual.shape}`,
+        isPending ? "shop-level-icon--pending" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{ "--shop-level-color": visual.color } as Record<string, string>}
+      title={visual.label}
+      aria-label={visual.label}
+    />
+  );
 }
 
 function ColorDot({ color }: { color: string }) {
