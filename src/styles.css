@@ -975,8 +975,7 @@ input:focus {
 }
 
 .score-chart__point {
-  stroke: #fff;
-  stroke-width: 2;
+  stroke: none;
 }
 
 .score-chart-legend {

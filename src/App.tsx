@@ -787,7 +787,7 @@ function ScoreHistoryChart({
                   key={`${series.playerId}-${point.time}-${pointIndex}`}
                   cx={point.x}
                   cy={point.y}
-                  r={point.isLatest ? 4.2 : 2.4}
+                  r={point.isLatest ? 2.1 : 1.2}
                   fill={series.playerColor}
                 />
               ))}
