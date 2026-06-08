@@ -1678,13 +1678,16 @@ function buildScoreChartModel(
   if (leaderboard.length === 0) return null;
 
   const now = Date.now();
+  const maxHistoryTime = now + 5 * 60_000;
   const historyByPlayer = new Map<string, Array<{ time: number; value: number }>>();
 
   for (const point of history) {
-    const time = new Date(point.recordedAt).getTime();
+    const rawTime = new Date(point.recordedAt).getTime();
     const value = Number(metric.getHistoryValue(point));
-    if (!Number.isFinite(time) || !Number.isFinite(value)) continue;
+    if (!Number.isFinite(rawTime) || !Number.isFinite(value)) continue;
+    if (rawTime > maxHistoryTime) continue;
 
+    const time = Math.min(rawTime, now);
     const points = historyByPlayer.get(point.playerId) ?? [];
     points.push({ time, value });
     historyByPlayer.set(point.playerId, points);
