@@ -324,7 +324,7 @@ button:disabled {
   left: 16px;
   z-index: 5;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   pointer-events: none;
@@ -503,6 +503,7 @@ button:disabled {
 
 .top-actions {
   display: flex;
+  align-self: flex-start;
   align-items: center;
   gap: 8px;
   padding: 8px;

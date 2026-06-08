@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  CircleDashed,
   Coffee,
   ImagePlus,
   LocateFixed,
@@ -607,8 +608,8 @@ export default function App() {
             aria-pressed={showAllRadii}
             onClick={() => setShowAllRadii((value) => !value)}
           >
-            <MapPin size={16} />
-            <span>{showAllRadii ? "Hide radii" : "Show radii"}</span>
+            <CircleDashed size={16} />
+            <span>{showAllRadii ? "Hide zones" : "Show zones"}</span>
           </button>
         </div>
         <div className="top-actions">
