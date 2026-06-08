@@ -12,6 +12,7 @@ interface GameMapProps {
   buildPreview: BuildPreview | null;
   demandEvents: DemandEvent[];
   selectedPinId: string | null;
+  showAllRadii: boolean;
   nowMs: number;
   isDemoMode: boolean;
   isChoosingDemandEventCenter: boolean;
@@ -46,6 +47,9 @@ const SHINGLE_DISTANCE_PX = 34;
 const SHINGLE_RING_SIZE = 6;
 const SHINGLE_FIRST_RING_RADIUS_PX = 17;
 const SHINGLE_RING_STEP_PX = 11;
+const ALL_RADIUS_SOURCE_ID = "all-shop-radii";
+const ALL_RADIUS_FILL_LAYER_ID = "all-shop-radii-fill";
+const ALL_RADIUS_LINE_LAYER_ID = "all-shop-radii-line";
 const COMPETITION_RADIUS_SOURCE_ID = "competition-radius";
 const COMPETITION_RADIUS_FILL_LAYER_ID = "competition-radius-fill";
 const COMPETITION_RADIUS_LINE_LAYER_ID = "competition-radius-line";
@@ -65,6 +69,7 @@ export function GameMap({
   buildPreview,
   demandEvents,
   selectedPinId,
+  showAllRadii,
   nowMs,
   isDemoMode,
   isChoosingDemandEventCenter,
@@ -209,6 +214,31 @@ export function GameMap({
       markersRef.current = [];
     };
   }, [affectedPinIds, currentPlayerId, onSelectPin, selectedPinId, visiblePins]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const updateAllRadiusLayer = () => {
+      ensureAllShopRadiusLayers(map);
+      const source = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
+      source?.setData(
+        showAllRadii
+          ? createShopRadiusFeatureCollection(visiblePins)
+          : EMPTY_RADIUS_DATA
+      );
+    };
+
+    if (map.isStyleLoaded()) {
+      updateAllRadiusLayer();
+      return;
+    }
+
+    map.once("load", updateAllRadiusLayer);
+    return () => {
+      map.off("load", updateAllRadiusLayer);
+    };
+  }, [showAllRadii, visiblePins]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -362,6 +392,59 @@ export function GameMap({
       {isDemoMode || isChoosingDemandEventCenter ? <div className="map-crosshair" aria-hidden="true" /> : null}
     </div>
   );
+}
+
+function ensureAllShopRadiusLayers(map: Map): void {
+  if (!map.getSource(ALL_RADIUS_SOURCE_ID)) {
+    map.addSource(ALL_RADIUS_SOURCE_ID, {
+      type: "geojson",
+      data: EMPTY_RADIUS_DATA
+    });
+  }
+
+  const beforeSelectedRadiusLayer = map.getLayer(COMPETITION_RADIUS_FILL_LAYER_ID)
+    ? COMPETITION_RADIUS_FILL_LAYER_ID
+    : undefined;
+
+  if (!map.getLayer(ALL_RADIUS_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: ALL_RADIUS_FILL_LAYER_ID,
+      type: "fill",
+      source: ALL_RADIUS_SOURCE_ID,
+      paint: {
+        "fill-color": ["get", "ownerColor"],
+        "fill-opacity": [
+          "case",
+          ["==", ["get", "status"], "stocked"],
+          0.08,
+          0.035
+        ]
+      }
+    }, beforeSelectedRadiusLayer);
+  }
+
+  if (!map.getLayer(ALL_RADIUS_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: ALL_RADIUS_LINE_LAYER_ID,
+      type: "line",
+      source: ALL_RADIUS_SOURCE_ID,
+      paint: {
+        "line-color": ["get", "ownerColor"],
+        "line-opacity": [
+          "case",
+          ["==", ["get", "status"], "stocked"],
+          0.38,
+          0.18
+        ],
+        "line-width": [
+          "case",
+          ["==", ["get", "status"], "stocked"],
+          1.5,
+          1
+        ]
+      }
+    }, beforeSelectedRadiusLayer);
+  }
 }
 
 function ensureCompetitionRadiusLayers(map: Map): void {
@@ -532,6 +615,31 @@ function createRadiusFeatureCollection(
         }
       }
     ]
+  };
+}
+
+function createShopRadiusFeatureCollection(
+  pins: GamePin[]
+): Parameters<GeoJSONSource["setData"]>[0] {
+  return {
+    type: "FeatureCollection",
+    features: pins.map((pin) => ({
+      type: "Feature",
+      properties: {
+        id: pin.id,
+        ownerColor: pin.ownerColor,
+        status: pin.status
+      },
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          createRadiusCoordinates(
+            pin,
+            competitionRadiusForLevel(pin.radiusLevel)
+          )
+        ]
+      }
+    }))
   };
 }
 

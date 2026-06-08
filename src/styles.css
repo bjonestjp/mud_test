@@ -331,6 +331,7 @@ button:disabled {
 }
 
 .brand-lockup,
+.map-radius-toggle,
 .top-actions,
 .bottom-actions,
 .map-selection-card,
@@ -343,6 +344,14 @@ button:disabled {
   background: var(--panel);
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
+}
+
+.top-stack {
+  display: grid;
+  min-width: 0;
+  max-width: min(70vw, 330px);
+  gap: 8px;
+  justify-items: start;
 }
 
 .brand-lockup {
@@ -360,6 +369,32 @@ button:disabled {
 .brand-lockup--compact {
   padding: 10px 12px;
   pointer-events: auto;
+}
+
+.map-radius-toggle {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border-radius: 8px;
+  color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 900;
+  pointer-events: auto;
+}
+
+.map-radius-toggle--active {
+  border-color: rgba(33, 116, 92, 0.45);
+  background: var(--green);
+  color: #fff;
+}
+
+.map-radius-toggle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand-lockup h1 {

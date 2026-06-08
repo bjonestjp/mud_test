@@ -148,6 +148,7 @@ export default function App() {
   const [bulletinImagePreview, setBulletinImagePreview] = useState("");
   const [editingBulletinId, setEditingBulletinId] = useState<string | null>(null);
   const [pendingDeleteBulletinId, setPendingDeleteBulletinId] = useState<string | null>(null);
+  const [showAllRadii, setShowAllRadii] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -579,6 +580,7 @@ export default function App() {
         buildPreview={pendingBuild}
         demandEvents={activeDemandEvents}
         selectedPinId={selectedPinId}
+        showAllRadii={showAllRadii}
         nowMs={nowMs}
         isDemoMode={game.isDemoMode}
         isChoosingDemandEventCenter={isChoosingDemandEventCenter}
@@ -589,14 +591,25 @@ export default function App() {
       />
 
       <header className="top-bar">
-        <div className="brand-lockup brand-lockup--compact">
-          <span className="brand-mark">
-            <Coffee size={22} />
-          </span>
-          <div>
-            <h1>mudslingers</h1>
-            <PlayerSummary game={game} pulseKey={balancePulseKey} />
+        <div className="top-stack">
+          <div className="brand-lockup brand-lockup--compact">
+            <span className="brand-mark">
+              <Coffee size={22} />
+            </span>
+            <div>
+              <h1>mudslingers</h1>
+              <PlayerSummary game={game} pulseKey={balancePulseKey} />
+            </div>
           </div>
+          <button
+            className={showAllRadii ? "map-radius-toggle map-radius-toggle--active" : "map-radius-toggle"}
+            type="button"
+            aria-pressed={showAllRadii}
+            onClick={() => setShowAllRadii((value) => !value)}
+          >
+            <MapPin size={16} />
+            <span>{showAllRadii ? "Hide radii" : "Show radii"}</span>
+          </button>
         </div>
         <div className="top-actions">
           <button className="icon-button" type="button" onClick={locatePlayer} disabled={isBusy} title={game.isDemoMode ? "Set simulated location" : "Center on my location"}>
