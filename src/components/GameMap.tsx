@@ -314,8 +314,9 @@ export function GameMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const shouldShowHomeBaseMarker = homeBase && hasValidCoordinate(homeBase) && exportTargetRadiusM !== null;
 
-    if (!homeBase || !hasValidCoordinate(homeBase)) {
+    if (!shouldShowHomeBaseMarker) {
       homeBaseMarkerRef.current?.remove();
       homeBaseMarkerRef.current = null;
     } else if (!homeBaseMarkerRef.current) {
