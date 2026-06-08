@@ -15,6 +15,8 @@ import type {
   Bulletin,
   CreateBulletinInput,
   DeleteBulletinInput,
+  DeletePinInput,
+  DeleteWarehouseInput,
   DemandEvent,
   EndDemandEventInput,
   ExportPlacePinInput,
@@ -235,6 +237,31 @@ export class DemoAdapter implements GameAdapter {
     }
 
     this.store.bulletins = nextBulletins;
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async deletePin(input: DeletePinInput): Promise<GameState> {
+    this.settleIncome();
+    const pin = this.store.pins.find((item) => item.id === input.pinId);
+
+    if (!pin) throw new Error("Shop was not found.");
+    if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("You can only delete your own shops.");
+
+    this.store.pins = this.store.pins.filter((item) => item.id !== input.pinId);
+    this.recalculatePins();
+    this.store.leaderboard = buildLeaderboard(this.store);
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async deleteWarehouse(input: DeleteWarehouseInput): Promise<GameState> {
+    const warehouse = this.store.warehouses.find((item) => item.id === input.warehouseId);
+
+    if (!warehouse) throw new Error("Warehouse was not found.");
+    if (warehouse.ownerId !== DEMO_PLAYER_ID) throw new Error("You can only delete your own warehouses.");
+
+    this.store.warehouses = this.store.warehouses.filter((item) => item.id !== input.warehouseId);
     saveStore(this.store);
     return this.state();
   }

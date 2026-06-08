@@ -891,6 +891,10 @@ button:disabled {
   width: 100%;
 }
 
+.panel-stack .danger-action {
+  width: 100%;
+}
+
 .shop-type-list {
   display: grid;
   gap: 10px;
@@ -1040,7 +1044,8 @@ textarea:focus {
 }
 
 .detail-grid > .secondary-action,
-.detail-grid > .upgrade-action {
+.detail-grid > .upgrade-action,
+.detail-grid > .danger-action {
   grid-column: 1 / -1;
 }
 
@@ -1175,10 +1180,22 @@ textarea:focus {
   font-weight: 700;
 }
 
+.warehouse-row__actions {
+  display: grid;
+  min-width: 96px;
+  gap: 6px;
+}
+
 .warehouse-row .secondary-action,
-.warehouse-row .upgrade-action {
+.warehouse-row .upgrade-action,
+.warehouse-row .danger-action {
   width: auto;
   min-width: 92px;
+}
+
+.warehouse-row .danger-action {
+  min-height: 36px;
+  padding: 0 10px;
 }
 
 .scores-stack {

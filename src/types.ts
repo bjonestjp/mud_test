@@ -165,6 +165,14 @@ export interface DeleteBulletinInput {
   bulletinId: string;
 }
 
+export interface DeletePinInput {
+  pinId: string;
+}
+
+export interface DeleteWarehouseInput {
+  warehouseId: string;
+}
+
 export interface BeginDemandEventInput {
   lat: number;
   lng: number;
@@ -225,6 +233,8 @@ export interface GameAdapter {
   createBulletin(input: CreateBulletinInput): Promise<GameState>;
   updateBulletin(input: UpdateBulletinInput): Promise<GameState>;
   deleteBulletin(input: DeleteBulletinInput): Promise<GameState>;
+  deletePin(input: DeletePinInput): Promise<GameState>;
+  deleteWarehouse(input: DeleteWarehouseInput): Promise<GameState>;
   beginDemandEvent(input: BeginDemandEventInput): Promise<GameState>;
   endDemandEvent(input: EndDemandEventInput): Promise<GameState>;
   updateShopLevelConfig(input: UpdateShopLevelConfigInput): Promise<GameState>;

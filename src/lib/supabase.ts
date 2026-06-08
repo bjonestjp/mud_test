@@ -15,6 +15,8 @@ import type {
   Bulletin,
   CreateBulletinInput,
   DeleteBulletinInput,
+  DeletePinInput,
+  DeleteWarehouseInput,
   DemandEvent,
   EndDemandEventInput,
   ExportPlacePinInput,
@@ -242,6 +244,24 @@ class SupabaseGameAdapter implements GameAdapter {
       await this.removeBulletinImages([data]);
     }
 
+    return this.refresh();
+  }
+
+  async deletePin(input: DeletePinInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("delete_pin", {
+      p_pin_id: input.pinId
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async deleteWarehouse(input: DeleteWarehouseInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("delete_warehouse", {
+      p_warehouse_id: input.warehouseId
+    });
+
+    if (error) throw error;
     return this.refresh();
   }
 
@@ -660,7 +680,7 @@ function calculateFallbackPinRates(pins: GamePin[]): GamePin[] {
 }
 
 function isVisiblePin(pin: GamePin): boolean {
-  return !(pin.pinType === "temporary" && pin.status === "expired");
+  return pin.status !== "disabled" && !(pin.pinType === "temporary" && pin.status === "expired");
 }
 
 function mapProfileRow(row: Record<string, unknown>, fallbackKey: string): PlayerProfile {

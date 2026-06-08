@@ -14,6 +14,7 @@ import {
   Send,
   ShieldCheck,
   Timer,
+  Trash2,
   Trophy,
   Users,
   Warehouse as WarehouseIcon,
@@ -93,6 +94,10 @@ interface PendingExportBuild {
   costPoints: number;
 }
 
+type PendingBuildingDelete =
+  | { kind: "pin"; id: string }
+  | { kind: "warehouse"; id: string };
+
 interface EventCenter {
   lat: number;
   lng: number;
@@ -164,6 +169,7 @@ export default function App() {
   const [exportRestockWarehouseId, setExportRestockWarehouseId] = useState<string | null>(null);
   const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
   const [pendingRadiusUpgradePinId, setPendingRadiusUpgradePinId] = useState<string | null>(null);
+  const [pendingBuildingDelete, setPendingBuildingDelete] = useState<PendingBuildingDelete | null>(null);
   const [isChoosingDemandEventCenter, setIsChoosingDemandEventCenter] = useState(false);
   const [isChoosingHomeBase, setIsChoosingHomeBase] = useState(false);
   const [isChoosingExportTarget, setIsChoosingExportTarget] = useState(false);
@@ -196,6 +202,12 @@ export default function App() {
   const pendingExportRestockPin = game.pins.find((pin) => pin.id === exportRestockPinId) ?? null;
   const exportBuildWarehouse = game.warehouses.find((warehouse) => warehouse.id === exportBuildWarehouseId) ?? null;
   const exportRestockWarehouse = game.warehouses.find((warehouse) => warehouse.id === exportRestockWarehouseId) ?? null;
+  const pendingDeletePin = pendingBuildingDelete?.kind === "pin"
+    ? game.pins.find((pin) => pin.id === pendingBuildingDelete.id) ?? null
+    : null;
+  const pendingDeleteWarehouse = pendingBuildingDelete?.kind === "warehouse"
+    ? game.warehouses.find((warehouse) => warehouse.id === pendingBuildingDelete.id) ?? null
+    : null;
   const editingBulletin = game.bulletins.find((bulletin) => bulletin.id === editingBulletinId) ?? null;
   const pendingDeleteBulletin = game.bulletins.find((bulletin) => bulletin.id === pendingDeleteBulletinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
@@ -512,6 +524,14 @@ export default function App() {
     setPendingRadiusUpgradePinId(pinId);
   };
 
+  const requestDeletePin = (pinId: string) => {
+    setPendingBuildingDelete({ kind: "pin", id: pinId });
+  };
+
+  const requestDeleteWarehouse = (warehouseId: string) => {
+    setPendingBuildingDelete({ kind: "warehouse", id: warehouseId });
+  };
+
   const openSelectedShop = () => {
     if (!selectedOwnPin) return;
 
@@ -541,6 +561,10 @@ export default function App() {
 
   const cancelRadiusUpgrade = () => {
     setPendingRadiusUpgradePinId(null);
+  };
+
+  const cancelDeleteBuilding = () => {
+    setPendingBuildingDelete(null);
   };
 
   const clearBulletinForm = () => {
@@ -696,6 +720,32 @@ export default function App() {
       setPendingRadiusUpgradePinId(null);
       return next;
     }, "Radius upgraded");
+  };
+
+  const confirmDeleteBuilding = () => {
+    if (pendingDeletePin) {
+      const pinId = pendingDeletePin.id;
+
+      void run(async () => {
+        const next = await adapter.deletePin({ pinId });
+        setPendingBuildingDelete(null);
+        if (selectedPinId === pinId) setSelectedPinId(null);
+        return next;
+      }, "Shop deleted");
+      return;
+    }
+
+    if (pendingDeleteWarehouse) {
+      const warehouseId = pendingDeleteWarehouse.id;
+
+      void run(async () => {
+        const next = await adapter.deleteWarehouse({ warehouseId });
+        setPendingBuildingDelete(null);
+        if (exportBuildWarehouseId === warehouseId) setExportBuildWarehouseId(null);
+        if (exportRestockWarehouseId === warehouseId) setExportRestockWarehouseId(null);
+        return next;
+      }, "Warehouse deleted");
+    }
   };
 
   const submitBulletin = (event: React.FormEvent) => {
@@ -874,14 +924,14 @@ export default function App() {
         </div>
       </header>
 
-      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingDeleteBulletin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
+      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !pendingDeleteBulletin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
         <button className="admin-map-button" type="button" onClick={() => setActivePanel("admin")}>
           <ShieldCheck size={16} />
           Admin
         </button>
       ) : null}
 
-      {selectedPin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
+      {selectedPin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
         <section className="map-selection-card" aria-label="Selected shop">
           {selectedOwnPin ? (
             <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
@@ -1024,6 +1074,7 @@ export default function App() {
                   onShopNameChange={setShopName}
                   onPreviewExportBuild={previewExportBuild}
                   onCancelExportBuild={() => setExportBuildWarehouseId(null)}
+                  onRequestDeleteWarehouse={requestDeleteWarehouse}
                 />
               ) : (
                 <BuildPanel
@@ -1051,6 +1102,7 @@ export default function App() {
                 onSelectPin={setSelectedPinId}
                 onRequestRestock={requestRestock}
                 onRequestRadiusUpgrade={requestRadiusUpgrade}
+                onRequestDelete={requestDeletePin}
               />
             ) : null}
 
@@ -1163,6 +1215,17 @@ export default function App() {
           isBusy={isBusy}
           onConfirm={confirmRadiusUpgrade}
           onCancel={cancelRadiusUpgrade}
+        />
+      ) : null}
+
+      {pendingDeletePin || pendingDeleteWarehouse ? (
+        <DeleteBuildingConfirmPanel
+          pin={pendingDeletePin}
+          warehouse={pendingDeleteWarehouse}
+          shopLevelConfig={shopLevelConfig}
+          isBusy={isBusy}
+          onConfirm={confirmDeleteBuilding}
+          onCancel={cancelDeleteBuilding}
         />
       ) : null}
 
@@ -1292,7 +1355,8 @@ function ExportBuildPanel({
   onSelectBuildType,
   onShopNameChange,
   onPreviewExportBuild,
-  onCancelExportBuild
+  onCancelExportBuild,
+  onRequestDeleteWarehouse
 }: {
   warehouses: Warehouse[];
   homeBase: HomeBase | null;
@@ -1317,6 +1381,7 @@ function ExportBuildPanel({
   onShopNameChange: (value: string) => void;
   onPreviewExportBuild: () => void;
   onCancelExportBuild: () => void;
+  onRequestDeleteWarehouse: (warehouseId: string) => void;
 }) {
   const selectedWarehouseOption = warehouseTiers.find((option) => option.tier === selectedWarehouseTier) ?? null;
 
@@ -1341,6 +1406,10 @@ function ExportBuildPanel({
         {!canUseWarehouse ? (
           <p className="muted">This warehouse needs to be restocked before it can power another export transaction.</p>
         ) : null}
+        <button className="danger-action" type="button" onClick={() => onRequestDeleteWarehouse(selectedWarehouse.id)} disabled={isBusy}>
+          <Trash2 size={18} />
+          Delete Warehouse
+        </button>
         {!selectedShopType ? (
           <div className="shop-type-list">
             {SHOP_TYPES.map((option) => (
@@ -1416,15 +1485,20 @@ function ExportBuildPanel({
                     <strong>{warehouse.name}</strong>
                     <small>{formatWarehouseStatus(warehouse, nowMs)} · {formatRadiusMeters(warehouse.radiusM)} reach</small>
                   </span>
-                  {canUseWarehouse ? (
-                    <button className="secondary-action" type="button" onClick={() => onStartExportBuild(warehouse.id)} disabled={isBusy}>
-                      Use
+                  <div className="warehouse-row__actions">
+                    {canUseWarehouse ? (
+                      <button className="secondary-action" type="button" onClick={() => onStartExportBuild(warehouse.id)} disabled={isBusy}>
+                        Use
+                      </button>
+                    ) : (
+                      <button className="upgrade-action" type="button" onClick={() => onRestockWarehouse(warehouse.id)} disabled={isBusy || !canRestock || pointsBalance < GAME_CONFIG.warehouseRestockCost}>
+                        Restock
+                      </button>
+                    )}
+                    <button className="danger-action" type="button" onClick={() => onRequestDeleteWarehouse(warehouse.id)} disabled={isBusy}>
+                      Delete
                     </button>
-                  ) : (
-                    <button className="upgrade-action" type="button" onClick={() => onRestockWarehouse(warehouse.id)} disabled={isBusy || !canRestock || pointsBalance < GAME_CONFIG.warehouseRestockCost}>
-                      Restock
-                    </button>
-                  )}
+                  </div>
                 </div>
               );
             })}
@@ -1672,7 +1746,8 @@ function YourShopsPanel({
   nowMs,
   onSelectPin,
   onRequestRestock,
-  onRequestRadiusUpgrade
+  onRequestRadiusUpgrade,
+  onRequestDelete
 }: {
   pins: GamePin[];
   selectedPin: GamePin | null;
@@ -1682,6 +1757,7 @@ function YourShopsPanel({
   onSelectPin: (pinId: string) => void;
   onRequestRestock: (pinId: string) => void;
   onRequestRadiusUpgrade: (pinId: string) => void;
+  onRequestDelete: (pinId: string) => void;
 }) {
   if (pins.length === 0) {
     return <p className="muted">No shops yet.</p>;
@@ -1713,6 +1789,7 @@ function YourShopsPanel({
                 nowMs={nowMs}
                 onRequestRestock={() => onRequestRestock(pin.id)}
                 onRequestRadiusUpgrade={() => onRequestRadiusUpgrade(pin.id)}
+                onRequestDelete={() => onRequestDelete(pin.id)}
                 isBusy={isBusy}
               />
             ) : null}
@@ -2656,6 +2733,7 @@ function PinDetail({
   nowMs,
   onRequestRestock,
   onRequestRadiusUpgrade,
+  onRequestDelete,
   isBusy
 }: {
   pin: GamePin;
@@ -2664,6 +2742,7 @@ function PinDetail({
   nowMs: number;
   onRequestRestock: () => void;
   onRequestRadiusUpgrade: () => void;
+  onRequestDelete: () => void;
   isBusy: boolean;
 }) {
   const canUpgradeRadius = isOwner && pin.radiusLevel < GAME_CONFIG.radiusUpgradeMaxLevel;
@@ -2709,6 +2788,12 @@ function PinDetail({
         <button className="upgrade-action" type="button" onClick={onRequestRadiusUpgrade} disabled={isBusy}>
           <MapPin size={18} />
           Upgrade Radius
+        </button>
+      ) : null}
+      {isOwner ? (
+        <button className="danger-action" type="button" onClick={onRequestDelete} disabled={isBusy}>
+          <Trash2 size={18} />
+          Delete Building
         </button>
       ) : null}
     </div>
@@ -2952,6 +3037,65 @@ function RadiusUpgradeConfirmPanel({
             >
               <MapPin size={18} />
               Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DeleteBuildingConfirmPanel({
+  pin,
+  warehouse,
+  shopLevelConfig,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  pin: GamePin | null;
+  warehouse: Warehouse | null;
+  shopLevelConfig: ShopLevelConfig;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const isWarehouse = Boolean(warehouse);
+  const title = warehouse?.name ?? pin?.name ?? "Building";
+  const description = isWarehouse
+    ? "This removes the warehouse from the map and deletes any unused warehouse credit. No tokens will be refunded."
+    : "This removes the shop from the map and stops its income. No tokens will be refunded.";
+
+  return (
+    <section className="screen-panel screen-panel--confirm" role="dialog" aria-modal="true">
+      <div className="screen-panel__header">
+        <div className="section-title">
+          <Trash2 size={20} />
+          <h2>Delete Building</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={onCancel} title="Close">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="screen-panel__body">
+        <div className="confirm-stack">
+          <p className="confirm-question">Delete "{title}"?</p>
+          <div className="selected-build-type">
+            <span>
+              <strong>
+                {warehouse ? warehouse.name : pin ? <ShopNameWithLevel pin={pin} config={shopLevelConfig} /> : "Building"}
+              </strong>
+              <small>{description}</small>
+            </span>
+            {warehouse ? <WarehouseIcon size={20} /> : <Trash2 size={20} />}
+          </div>
+          <div className="build-confirm-actions">
+            <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+              Cancel
+            </button>
+            <button className="danger-action" type="button" onClick={onConfirm} disabled={isBusy || (!pin && !warehouse)}>
+              <Trash2 size={18} />
+              Delete
             </button>
           </div>
         </div>
