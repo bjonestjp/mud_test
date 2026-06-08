@@ -17,17 +17,24 @@ import type {
   DeleteBulletinInput,
   DemandEvent,
   EndDemandEventInput,
+  ExportPlacePinInput,
+  ExportRestockPinInput,
   GameAdapter,
   GamePin,
   GameState,
+  HomeBase,
   LeaderboardRow,
   PlacePinInput,
+  PlaceWarehouseInput,
   PlayerProfile,
   RestockPinInput,
+  RestockWarehouseInput,
   ScoreHistoryPoint,
   ShopLevelConfig,
   UpdateBulletinInput,
-  UpdateShopLevelConfigInput
+  UpdateHomeBaseInput,
+  UpdateShopLevelConfigInput,
+  Warehouse
 } from "../types";
 
 const STORAGE_KEY = "coffee-pin-demo-state-v1";
@@ -73,6 +80,8 @@ interface DemoStore {
   leaderboard: LeaderboardRow[];
   bulletins: Bulletin[];
   demandEvents: DemandEvent[];
+  warehouses: Warehouse[];
+  homeBase: HomeBase | null;
   shopLevelConfig: ShopLevelConfig;
   lastSettledAt: string;
 }
@@ -110,6 +119,9 @@ export class DemoAdapter implements GameAdapter {
     this.settleIncome();
     const cost = getPinCost(input.pinType);
 
+    if (this.store.profile.playerMode === "export") {
+      throw new Error("Export players build shops through warehouses.");
+    }
     if (this.store.profile.pointsBalance < cost) {
       throw new Error("Not enough tokens.");
     }
@@ -288,10 +300,172 @@ export class DemoAdapter implements GameAdapter {
     return this.state();
   }
 
+  async placeWarehouse(input: PlaceWarehouseInput): Promise<GameState> {
+    const now = new Date();
+    const radiusM = input.tier === "large" ? 300 : input.tier === "medium" ? 200 : 100;
+
+    if (this.store.profile.playerMode !== "export") {
+      throw new Error("Only export players can build warehouses.");
+    }
+    if (this.store.profile.pointsBalance < GAME_CONFIG.warehouseCost) {
+      throw new Error("Not enough tokens.");
+    }
+    const overlappingWarehouse = this.store.warehouses.find((warehouse) =>
+      distanceMeters(warehouse, input) <= warehouse.radiusM + radiusM
+    );
+    if (overlappingWarehouse) {
+      throw new Error("Warehouse radius overlaps another warehouse.");
+    }
+
+    this.store.profile.pointsBalance -= GAME_CONFIG.warehouseCost;
+    this.store.warehouses = [
+      {
+        id: crypto.randomUUID(),
+        ownerId: DEMO_PLAYER_ID,
+        ownerName: "You",
+        ownerColor: this.store.profile.playerColor,
+        name: input.name.trim() || "Warehouse",
+        tier: input.tier,
+        radiusM,
+        lat: input.lat,
+        lng: input.lng,
+        placedAt: now.toISOString(),
+        lastUsedAt: null,
+        availableAt: null,
+        creditAvailable: true,
+        status: "available"
+      },
+      ...this.store.warehouses
+    ];
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async restockWarehouse(input: RestockWarehouseInput): Promise<GameState> {
+    const warehouse = this.store.warehouses.find((item) => item.id === input.warehouseId);
+    if (!warehouse) throw new Error("Warehouse was not found.");
+    if (this.store.profile.playerMode !== "export") {
+      throw new Error("Only export players can restock warehouses.");
+    }
+    if (warehouse.creditAvailable) throw new Error("Warehouse already has an export credit.");
+    if (warehouse.availableAt && new Date(warehouse.availableAt).getTime() > Date.now()) {
+      throw new Error("Warehouse is still cooling down.");
+    }
+    if (this.store.profile.pointsBalance < GAME_CONFIG.warehouseRestockCost) {
+      throw new Error("Not enough tokens.");
+    }
+
+    const distance = distanceMeters(warehouse, input);
+    if (distance > GAME_CONFIG.restockRadiusM) {
+      throw new Error(`You are ${Math.round(distance)}m away.`);
+    }
+
+    this.store.profile.pointsBalance -= GAME_CONFIG.warehouseRestockCost;
+    warehouse.creditAvailable = true;
+    warehouse.status = "available";
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async exportPlacePin(input: ExportPlacePinInput): Promise<GameState> {
+    const warehouse = this.store.warehouses.find((item) => item.id === input.warehouseId);
+    if (this.store.profile.playerMode !== "export") throw new Error("Only export players can build this way.");
+    if (!warehouse) throw new Error("Warehouse was not found.");
+    if (!warehouse.creditAvailable) throw new Error("Warehouse needs restocking.");
+
+    const homeBase = this.store.homeBase;
+    if (!homeBase) throw new Error("Home base has not been set.");
+    const distance = distanceMeters(homeBase, input);
+    if (distance > warehouse.radiusM) throw new Error("Shop is outside this warehouse's home-base reach.");
+    if (this.store.profile.pointsBalance < GAME_CONFIG.exportShopCost) throw new Error("Not enough tokens.");
+
+    const now = new Date();
+    const pin: GamePin = {
+      id: crypto.randomUUID(),
+      ownerId: DEMO_PLAYER_ID,
+      ownerName: "You",
+      ownerColor: this.store.profile.playerColor,
+      name: input.name.trim() || "New Shop",
+      pinType: input.pinType,
+      radiusLevel: 0,
+      lat: input.lat,
+      lng: input.lng,
+      busyScore: estimateDemoBusyScore(input.lat, input.lng),
+      busyLabel: "Steady",
+      placedAt: now.toISOString(),
+      visibleAt: now.toISOString(),
+      lastRestockedAt: input.pinType === "standard" ? now.toISOString() : null,
+      restockDueAt: input.pinType === "standard"
+        ? addHours(now, GAME_CONFIG.standardRestockHours).toISOString()
+        : null,
+      expiresAt: input.pinType === "temporary"
+        ? addHours(now, GAME_CONFIG.temporaryExpiryHours).toISOString()
+        : null,
+      status: "stocked",
+      currentHourlyRate: 0,
+      competitionPressure: 0,
+      lifetimeIncome: 0
+    };
+
+    pin.busyLabel = getBusyLabel(pin.busyScore);
+    this.store.profile.pointsBalance -= GAME_CONFIG.exportShopCost;
+    this.store.pins = [pin, ...this.store.pins];
+    warehouse.creditAvailable = false;
+    warehouse.status = "cooldown";
+    warehouse.lastUsedAt = now.toISOString();
+    warehouse.availableAt = addHours(now, GAME_CONFIG.warehouseRestockHours).toISOString();
+    this.recalculatePins();
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async exportRestockPin(input: ExportRestockPinInput): Promise<GameState> {
+    const warehouse = this.store.warehouses.find((item) => item.id === input.warehouseId);
+    const pin = this.store.pins.find((item) => item.id === input.pinId);
+    if (this.store.profile.playerMode !== "export") throw new Error("Only export players can restock this way.");
+    if (!warehouse) throw new Error("Warehouse was not found.");
+    if (!pin) throw new Error("Pin was not found.");
+    if (!warehouse.creditAvailable) throw new Error("Warehouse needs restocking.");
+    if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("This is not your shop.");
+    if (pin.pinType !== "standard") throw new Error("Kiosks cannot be restocked.");
+    if (!this.store.homeBase) throw new Error("Home base has not been set.");
+    if (distanceMeters(this.store.homeBase, pin) > warehouse.radiusM) {
+      throw new Error("This shop is outside the selected warehouse's home-base reach.");
+    }
+    if (this.store.profile.pointsBalance < GAME_CONFIG.restockCost) throw new Error("Not enough tokens.");
+
+    const now = new Date();
+    this.store.profile.pointsBalance -= GAME_CONFIG.restockCost;
+    pin.status = "stocked";
+    pin.lastRestockedAt = now.toISOString();
+    pin.restockDueAt = addHours(now, GAME_CONFIG.standardRestockHours).toISOString();
+    warehouse.creditAvailable = false;
+    warehouse.status = "cooldown";
+    warehouse.lastUsedAt = now.toISOString();
+    warehouse.availableAt = addHours(now, GAME_CONFIG.warehouseRestockHours).toISOString();
+    this.recalculatePins();
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async updateHomeBase(input: UpdateHomeBaseInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can set the home base.");
+    this.store.homeBase = {
+      lat: input.lat,
+      lng: input.lng,
+      updatedAt: new Date().toISOString()
+    };
+    saveStore(this.store);
+    return this.state();
+  }
+
   async restockPin(input: RestockPinInput): Promise<GameState> {
     this.settleIncome();
     const pin = this.store.pins.find((item) => item.id === input.pinId);
 
+    if (this.store.profile.playerMode === "export") {
+      throw new Error("Export players restock shops through warehouses.");
+    }
     if (!pin) throw new Error("Pin was not found.");
     if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("This is not your pin.");
     if (pin.pinType !== "standard") throw new Error("Kiosks cannot be restocked.");
@@ -326,6 +500,8 @@ export class DemoAdapter implements GameAdapter {
       scoreHistory: buildDemoScoreHistory(this.store),
       bulletins: this.store.bulletins,
       demandEvents: activeDemandEvents(this.store.demandEvents),
+      warehouses: this.store.warehouses,
+      homeBase: this.store.homeBase,
       shopLevelConfig: this.store.shopLevelConfig,
       isDemoMode: true
     };
@@ -423,12 +599,19 @@ function createInitialStore(): DemoStore {
       displayName: "You",
       playerColor: demoColorForPlayer(DEMO_PLAYER_ID),
       pointsBalance: GAME_CONFIG.startingPoints,
-      isAdmin: true
+      isAdmin: true,
+      playerMode: "local"
     },
     pins,
     leaderboard: [],
     bulletins: [createDemoBulletin(now)],
     demandEvents: [],
+    warehouses: [],
+    homeBase: {
+      lat: 55.9533,
+      lng: -3.1883,
+      updatedAt: now.toISOString()
+    },
     shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
     lastSettledAt: now.toISOString()
   };
@@ -454,12 +637,17 @@ function normalizeStore(candidate: Partial<DemoStore>): DemoStore {
       pointsBalance: Number.isFinite(profile.pointsBalance)
         ? Number(profile.pointsBalance)
         : GAME_CONFIG.startingPoints,
-      isAdmin: profile.isAdmin !== false
+      isAdmin: profile.isAdmin !== false,
+      playerMode: profile.playerMode === "export" ? "export" : "local"
     },
     pins: pins.map((pin, index) => normalizePin(pin ?? undefined, fallback.pins[index])),
     leaderboard: [],
     bulletins: normalizeBulletins(candidate.bulletins, fallback.bulletins),
     demandEvents: normalizeDemandEvents(candidate.demandEvents),
+    warehouses: Array.isArray(candidate.warehouses)
+      ? candidate.warehouses.map(normalizeWarehouse)
+      : fallback.warehouses,
+    homeBase: normalizeHomeBase(candidate.homeBase) ?? fallback.homeBase,
     shopLevelConfig: normalizeShopLevelConfig(candidate.shopLevelConfig),
     lastSettledAt: candidate.lastSettledAt || new Date().toISOString()
   };
@@ -513,6 +701,54 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
     lifetimeIncome: Number.isFinite(pin?.lifetimeIncome)
       ? Math.max(0, Number(pin?.lifetimeIncome))
       : safeFallback.lifetimeIncome
+  };
+}
+
+function normalizeWarehouse(candidate: Partial<Warehouse>): Warehouse {
+  const tier = candidate.tier === "large" || candidate.tier === "medium" ? candidate.tier : "small";
+  const radiusM = Number.isFinite(candidate.radiusM)
+    ? Math.max(1, Number(candidate.radiusM))
+    : tier === "large"
+      ? 300
+      : tier === "medium"
+        ? 200
+        : 100;
+  const creditAvailable = candidate.creditAvailable !== false;
+
+  return {
+    id: candidate.id || crypto.randomUUID(),
+    ownerId: candidate.ownerId || DEMO_PLAYER_ID,
+    ownerName: candidate.ownerName || "You",
+    ownerColor: normalizeColor(candidate.ownerColor, candidate.ownerId || DEMO_PLAYER_ID),
+    name: candidate.name || "Warehouse",
+    tier,
+    radiusM,
+    lat: Number.isFinite(candidate.lat) ? Number(candidate.lat) : 55.9533,
+    lng: Number.isFinite(candidate.lng) ? Number(candidate.lng) : -3.1883,
+    placedAt: candidate.placedAt || new Date().toISOString(),
+    lastUsedAt: candidate.lastUsedAt ?? null,
+    availableAt: candidate.availableAt ?? null,
+    creditAvailable,
+    status: creditAvailable
+      ? "available"
+      : candidate.status === "empty"
+        ? "empty"
+        : "cooldown"
+  };
+}
+
+function normalizeHomeBase(candidate: unknown): HomeBase | null {
+  if (typeof candidate !== "object" || candidate === null) return null;
+  const value = candidate as Partial<HomeBase>;
+  const lat = Number(value.lat);
+  const lng = Number(value.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return {
+    lat,
+    lng,
+    updatedAt: value.updatedAt ?? null
   };
 }
 

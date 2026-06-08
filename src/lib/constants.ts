@@ -5,6 +5,10 @@ export const GAME_CONFIG = {
   startingPoints: 300,
   standardPinCost: 200,
   temporaryPinCost: 100,
+  exportShopCost: 100,
+  warehouseCost: 100,
+  warehouseRestockCost: 100,
+  warehouseRestockHours: 48,
   restockCost: 25,
   restockRadiusM: 50,
   competitionRadiusM: 150,
@@ -14,6 +18,27 @@ export const GAME_CONFIG = {
   temporaryExpiryHours: 72,
   maxAcceptedAccuracyM: 100
 };
+
+export const WAREHOUSE_TIERS = [
+  {
+    tier: "small",
+    label: "Small Warehouse",
+    radiusM: 100,
+    blurb: "A compact export base with 100m home-base reach."
+  },
+  {
+    tier: "medium",
+    label: "Medium Warehouse",
+    radiusM: 200,
+    blurb: "A sturdier export base with 200m home-base reach."
+  },
+  {
+    tier: "large",
+    label: "Large Warehouse",
+    radiusM: 300,
+    blurb: "A broad export base with 300m home-base reach."
+  }
+] as const;
 
 export const DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS = [25, 50, 90, 150, 250];
 export const DEFAULT_SHOP_LEVEL_BONUS_POINTS = 1;

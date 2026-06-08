@@ -16,6 +16,7 @@ import {
   Timer,
   Trophy,
   Users,
+  Warehouse as WarehouseIcon,
   X,
   Zap
 } from "lucide-react";
@@ -28,11 +29,12 @@ import {
   DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
   EDINBURGH_CENTER,
   GAME_CONFIG,
+  WAREHOUSE_TIERS,
   pointsToTokenProgress,
   pointsToWholeTokens
 } from "./lib/constants";
-import { requestCurrentLocation } from "./lib/geo";
-import type { Bulletin, DemandEvent, GamePin, GameState, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint, ShopLevelConfig } from "./types";
+import { distanceMeters, requestCurrentLocation } from "./lib/geo";
+import type { Bulletin, DemandEvent, GamePin, GameState, HomeBase, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint, ShopLevelConfig, Warehouse, WarehouseTier } from "./types";
 
 const DEFAULT_SHOP_LEVEL_CONFIG: ShopLevelConfig = {
   thresholdsPoints: DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
@@ -46,6 +48,8 @@ const EMPTY_STATE: GameState = {
   scoreHistory: [],
   bulletins: [],
   demandEvents: [],
+  warehouses: [],
+  homeBase: null,
   shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
   isDemoMode: false
 };
@@ -70,6 +74,23 @@ interface PendingBuild {
   label: string;
   costPoints: number;
   location: LocationReading;
+}
+
+interface PendingWarehouseBuild {
+  name: string;
+  tier: WarehouseTier;
+  label: string;
+  radiusM: number;
+  costPoints: number;
+  location: LocationReading;
+}
+
+interface PendingExportBuild {
+  warehouseId: string;
+  name: string;
+  pinType: PinType;
+  label: string;
+  costPoints: number;
 }
 
 interface EventCenter {
@@ -134,9 +155,18 @@ export default function App() {
   const [shopName, setShopName] = useState("");
   const [selectedBuildType, setSelectedBuildType] = useState<PinType | null>(null);
   const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
+  const [warehouseName, setWarehouseName] = useState("");
+  const [selectedWarehouseTier, setSelectedWarehouseTier] = useState<WarehouseTier | null>(null);
+  const [pendingWarehouseBuild, setPendingWarehouseBuild] = useState<PendingWarehouseBuild | null>(null);
+  const [pendingExportBuild, setPendingExportBuild] = useState<PendingExportBuild | null>(null);
+  const [exportBuildWarehouseId, setExportBuildWarehouseId] = useState<string | null>(null);
+  const [exportRestockPinId, setExportRestockPinId] = useState<string | null>(null);
+  const [exportRestockWarehouseId, setExportRestockWarehouseId] = useState<string | null>(null);
   const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
   const [pendingRadiusUpgradePinId, setPendingRadiusUpgradePinId] = useState<string | null>(null);
   const [isChoosingDemandEventCenter, setIsChoosingDemandEventCenter] = useState(false);
+  const [isChoosingHomeBase, setIsChoosingHomeBase] = useState(false);
+  const [isChoosingExportTarget, setIsChoosingExportTarget] = useState(false);
   const [pendingDemandEventCenter, setPendingDemandEventCenter] = useState<EventCenter | null>(null);
   const [eventDurationHours, setEventDurationHours] = useState("2");
   const [eventRadiusM, setEventRadiusM] = useState("300");
@@ -163,10 +193,16 @@ export default function App() {
   const selectedOwnPin = selectedPin?.ownerId === game.profile?.id ? selectedPin : null;
   const pendingRestockPin = game.pins.find((pin) => pin.id === pendingRestockPinId) ?? null;
   const pendingRadiusUpgradePin = game.pins.find((pin) => pin.id === pendingRadiusUpgradePinId) ?? null;
+  const pendingExportRestockPin = game.pins.find((pin) => pin.id === exportRestockPinId) ?? null;
+  const exportBuildWarehouse = game.warehouses.find((warehouse) => warehouse.id === exportBuildWarehouseId) ?? null;
+  const exportRestockWarehouse = game.warehouses.find((warehouse) => warehouse.id === exportRestockWarehouseId) ?? null;
   const editingBulletin = game.bulletins.find((bulletin) => bulletin.id === editingBulletinId) ?? null;
   const pendingDeleteBulletin = game.bulletins.find((bulletin) => bulletin.id === pendingDeleteBulletinId) ?? null;
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
+  const ownWarehouses = game.warehouses.filter((warehouse) => warehouse.ownerId === game.profile?.id);
+  const isExportPlayer = game.profile?.playerMode === "export";
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
+  const selectedWarehouseOption = WAREHOUSE_TIERS.find((option) => option.tier === selectedWarehouseTier) ?? null;
   const activeDemandEvents = game.demandEvents.filter((event) => isDemandEventActive(event, nowMs));
   const shopLevelConfig = useMemo(
     () => normalizeShopLevelConfig(game.shopLevelConfig),
@@ -283,6 +319,10 @@ export default function App() {
 
   const previewBuild = () =>
     run(async () => {
+      if (isExportPlayer) {
+        throw new Error("Export players build shops through warehouses.");
+      }
+
       if (!selectedShopType) {
         throw new Error("Choose a shop type first.");
       }
@@ -299,6 +339,30 @@ export default function App() {
         pinType: selectedShopType.pinType,
         label: selectedShopType.label,
         costPoints: selectedShopType.costPoints,
+        location
+      });
+      setActivePanel(null);
+    }, "Check the map, then confirm");
+
+  const previewWarehouseBuild = () =>
+    run(async () => {
+      if (!selectedWarehouseOption) {
+        throw new Error("Choose a warehouse tier first.");
+      }
+
+      const location = await getPlacementLocation(game.isDemoMode, playerLocation);
+      setPlayerLocation(location);
+      setFocusLocation({
+        lat: location.lat,
+        lng: location.lng,
+        requestId: Date.now()
+      });
+      setPendingWarehouseBuild({
+        name: warehouseName.trim() || selectedWarehouseOption.label,
+        tier: selectedWarehouseOption.tier,
+        label: selectedWarehouseOption.label,
+        radiusM: selectedWarehouseOption.radiusM,
+        costPoints: GAME_CONFIG.warehouseCost,
         location
       });
       setActivePanel(null);
@@ -328,7 +392,119 @@ export default function App() {
     setPendingBuild(null);
   };
 
+  const confirmWarehouseBuild = () => {
+    if (!pendingWarehouseBuild) return;
+
+    void run(async () => {
+      const next = await adapter.placeWarehouse({
+        lat: pendingWarehouseBuild.location.lat,
+        lng: pendingWarehouseBuild.location.lng,
+        accuracy: pendingWarehouseBuild.location.accuracy,
+        name: pendingWarehouseBuild.name,
+        tier: pendingWarehouseBuild.tier
+      });
+      const nextWarehouse = next.warehouses.find((warehouse) =>
+        warehouse.ownerId === next.profile?.id &&
+        warehouse.name === pendingWarehouseBuild.name
+      ) ?? next.warehouses.find((warehouse) => warehouse.ownerId === next.profile?.id) ?? null;
+
+      setWarehouseName("");
+      setPendingWarehouseBuild(null);
+      setSelectedWarehouseTier(null);
+      setExportBuildWarehouseId(nextWarehouse?.id ?? null);
+      setSelectedBuildType(null);
+      setShopName("");
+      setActivePanel("build");
+      return next;
+    }, "Warehouse built");
+  };
+
+  const cancelWarehouseBuild = () => {
+    setPendingWarehouseBuild(null);
+  };
+
+  const startExportBuild = (warehouseId: string) => {
+    setExportBuildWarehouseId(warehouseId);
+    setExportRestockPinId(null);
+    setExportRestockWarehouseId(null);
+    setSelectedBuildType(null);
+    setShopName("");
+    setActivePanel("build");
+
+    const homeBase = game.homeBase;
+    if (homeBase) {
+      setFocusLocation({
+        lat: homeBase.lat,
+        lng: homeBase.lng,
+        requestId: Date.now()
+      });
+    }
+  };
+
+  const previewExportBuild = () => {
+    if (!exportBuildWarehouse) return;
+
+    if (!game.homeBase) {
+      setNotice({ message: "Home base has not been set yet.", tone: "error" });
+      return;
+    }
+
+    if (!selectedShopType) {
+      setNotice({ message: "Choose a shop type first.", tone: "error" });
+      return;
+    }
+
+    setPendingExportBuild({
+      warehouseId: exportBuildWarehouse.id,
+      name: shopName.trim() || selectedShopType.label,
+      pinType: selectedShopType.pinType,
+      label: selectedShopType.label,
+      costPoints: GAME_CONFIG.exportShopCost
+    });
+    setActivePanel(null);
+    setIsChoosingExportTarget(true);
+    setFocusLocation({
+      lat: game.homeBase.lat,
+      lng: game.homeBase.lng,
+      requestId: Date.now()
+    });
+  };
+
+  const confirmExportBuild = () => {
+    if (!pendingExportBuild) return;
+
+    void run(async () => {
+      const next = await adapter.exportPlacePin({
+        warehouseId: pendingExportBuild.warehouseId,
+        lat: mapCenter.lat,
+        lng: mapCenter.lng,
+        name: pendingExportBuild.name,
+        pinType: pendingExportBuild.pinType
+      });
+
+      setPendingExportBuild(null);
+      setExportBuildWarehouseId(null);
+      setIsChoosingExportTarget(false);
+      setSelectedBuildType(null);
+      setShopName("");
+      setSelectedPinId(next.pins[0]?.id ?? null);
+      return next;
+    }, `${pendingExportBuild.label} built`);
+  };
+
+  const cancelExportBuild = () => {
+    setPendingExportBuild(null);
+    setIsChoosingExportTarget(false);
+    setActivePanel("build");
+  };
+
   const requestRestock = (pinId: string) => {
+    if (isExportPlayer) {
+      setExportRestockPinId(pinId);
+      setExportRestockWarehouseId(null);
+      return;
+    }
+
     setPendingRestockPinId(pinId);
   };
 
@@ -358,6 +534,11 @@ export default function App() {
     setPendingRestockPinId(null);
   };
 
+  const cancelExportRestock = () => {
+    setExportRestockPinId(null);
+    setExportRestockWarehouseId(null);
+  };
+
   const cancelRadiusUpgrade = () => {
     setPendingRadiusUpgradePinId(null);
   };
@@ -382,15 +563,47 @@ export default function App() {
     setNotice(null);
   };
 
+  const startHomeBaseSelection = () => {
+    setSelectedPinId(null);
+    setActivePanel(null);
+    setIsChoosingHomeBase(true);
+    setNotice(null);
+
+    const homeBase = game.homeBase;
+    if (homeBase) {
+      setFocusLocation({
+        lat: homeBase.lat,
+        lng: homeBase.lng,
+        requestId: Date.now()
+      });
+    }
+  };
+
   const cancelDemandEventCenterSelection = () => {
     setIsChoosingDemandEventCenter(false);
     setPendingDemandEventCenter(null);
+  };
+
+  const cancelHomeBaseSelection = () => {
+    setIsChoosingHomeBase(false);
   };
 
   const confirmDemandEventCenter = () => {
     setPendingDemandEventCenter(mapCenter);
     setIsChoosingDemandEventCenter(false);
     setActivePanel("event");
+  };
+
+  const confirmHomeBase = () => {
+    void run(async () => {
+      const next = await adapter.updateHomeBase({
+        lat: mapCenter.lat,
+        lng: mapCenter.lng
+      });
+      setIsChoosingHomeBase(false);
+      setActivePanel("admin");
+      return next;
+    }, "Home base updated");
   };
 
   const cancelDemandEventSetup = () => {
@@ -440,6 +653,38 @@ export default function App() {
       setPendingRestockPinId(null);
       return next;
     }, "Restocked");
+  };
+
+  const confirmExportRestock = () => {
+    if (!pendingExportRestockPin || !exportRestockWarehouse) return;
+
+    void run(async () => {
+      const next = await adapter.exportRestockPin({
+        pinId: pendingExportRestockPin.id,
+        warehouseId: exportRestockWarehouse.id
+      });
+      setExportRestockPinId(null);
+      setExportRestockWarehouseId(null);
+      return next;
+    }, "Restocked");
+  };
+
+  const restockWarehouse = (warehouseId: string) => {
+    void run(async () => {
+      const location = await getFreshPlayerLocation(game.isDemoMode, mapCenter);
+      setPlayerLocation(location);
+      setFocusLocation({
+        lat: location.lat,
+        lng: location.lng,
+        requestId: Date.now()
+      });
+      return adapter.restockWarehouse({
+        warehouseId,
+        lat: location.lat,
+        lng: location.lng,
+        accuracy: location.accuracy
+      });
+    }, "Warehouse restocked");
   };
 
   const confirmRadiusUpgrade = () => {
@@ -575,16 +820,20 @@ export default function App() {
     <main className="app-shell">
       <GameMap
         pins={game.pins}
+        warehouses={game.warehouses}
+        homeBase={game.homeBase}
         currentPlayerId={game.profile?.id ?? null}
         playerLocation={playerLocation}
         focusLocation={focusLocation}
         buildPreview={pendingBuild}
+        warehousePreview={pendingWarehouseBuild}
         demandEvents={activeDemandEvents}
         selectedPinId={selectedPinId}
         showAllRadii={showAllRadii}
+        exportTargetRadiusM={isChoosingExportTarget ? exportBuildWarehouse?.radiusM ?? null : null}
         nowMs={nowMs}
         isDemoMode={game.isDemoMode}
-        isChoosingDemandEventCenter={isChoosingDemandEventCenter}
+        isChoosingMapTarget={isChoosingDemandEventCenter || isChoosingHomeBase || isChoosingExportTarget}
         onSelectPin={(pin) => {
           setSelectedPinId(pin.id);
         }}
@@ -625,14 +874,14 @@ export default function App() {
         </div>
       </header>
 
-      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingDeleteBulletin && !isChoosingDemandEventCenter ? (
+      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingDeleteBulletin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
         <button className="admin-map-button" type="button" onClick={() => setActivePanel("admin")}>
           <ShieldCheck size={16} />
           Admin
         </button>
       ) : null}
 
-      {selectedPin && !activePanel && !pendingBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !isChoosingDemandEventCenter ? (
+      {selectedPin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
         <section className="map-selection-card" aria-label="Selected shop">
           {selectedOwnPin ? (
             <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
@@ -663,12 +912,36 @@ export default function App() {
           onConfirm={confirmBuild}
           onCancel={cancelBuild}
         />
+      ) : pendingWarehouseBuild ? (
+        <WarehouseBuildConfirmBar
+          build={pendingWarehouseBuild}
+          isBusy={isBusy}
+          onConfirm={confirmWarehouseBuild}
+          onCancel={cancelWarehouseBuild}
+        />
       ) : isChoosingDemandEventCenter ? (
         <EventCenterConfirmBar
           center={mapCenter}
           isBusy={isBusy}
           onConfirm={confirmDemandEventCenter}
           onCancel={cancelDemandEventCenterSelection}
+        />
+      ) : isChoosingHomeBase ? (
+        <HomeBaseConfirmBar
+          center={mapCenter}
+          isBusy={isBusy}
+          onConfirm={confirmHomeBase}
+          onCancel={cancelHomeBaseSelection}
+        />
+      ) : isChoosingExportTarget && pendingExportBuild ? (
+        <ExportTargetConfirmBar
+          build={pendingExportBuild}
+          warehouse={exportBuildWarehouse}
+          center={mapCenter}
+          homeBase={game.homeBase}
+          isBusy={isBusy}
+          onConfirm={confirmExportBuild}
+          onCancel={cancelExportBuild}
         />
       ) : (
         <nav className="bottom-actions" aria-label="Game actions">
@@ -726,18 +999,46 @@ export default function App() {
 
           <div className="screen-panel__body">
             {activePanel === "build" ? (
-              <BuildPanel
-                shopTypes={SHOP_TYPES}
-                selectedBuildType={selectedBuildType}
-                onSelectBuildType={setSelectedBuildType}
-                shopName={shopName}
-                setShopName={setShopName}
-                pointsBalance={game.profile?.pointsBalance ?? 0}
-                isBusy={isBusy}
-                isDemoMode={game.isDemoMode}
-                hasPlayerLocation={Boolean(playerLocation)}
-                onPreviewBuild={previewBuild}
-              />
+              isExportPlayer ? (
+                <ExportBuildPanel
+                  warehouses={ownWarehouses}
+                  homeBase={game.homeBase}
+                  selectedWarehouse={exportBuildWarehouse}
+                  warehouseTiers={WAREHOUSE_TIERS}
+                  selectedWarehouseTier={selectedWarehouseTier}
+                  selectedBuildType={selectedBuildType}
+                  selectedShopType={selectedShopType}
+                  warehouseName={warehouseName}
+                  shopName={shopName}
+                  pointsBalance={game.profile?.pointsBalance ?? 0}
+                  isBusy={isBusy}
+                  isDemoMode={game.isDemoMode}
+                  hasPlayerLocation={Boolean(playerLocation)}
+                  nowMs={nowMs}
+                  onSelectWarehouseTier={setSelectedWarehouseTier}
+                  onWarehouseNameChange={setWarehouseName}
+                  onPreviewWarehouseBuild={previewWarehouseBuild}
+                  onStartExportBuild={startExportBuild}
+                  onRestockWarehouse={restockWarehouse}
+                  onSelectBuildType={setSelectedBuildType}
+                  onShopNameChange={setShopName}
+                  onPreviewExportBuild={previewExportBuild}
+                  onCancelExportBuild={() => setExportBuildWarehouseId(null)}
+                />
+              ) : (
+                <BuildPanel
+                  shopTypes={SHOP_TYPES}
+                  selectedBuildType={selectedBuildType}
+                  onSelectBuildType={setSelectedBuildType}
+                  shopName={shopName}
+                  setShopName={setShopName}
+                  pointsBalance={game.profile?.pointsBalance ?? 0}
+                  isBusy={isBusy}
+                  isDemoMode={game.isDemoMode}
+                  hasPlayerLocation={Boolean(playerLocation)}
+                  onPreviewBuild={previewBuild}
+                />
+              )
             ) : null}
 
             {activePanel === "shops" ? (
@@ -770,10 +1071,12 @@ export default function App() {
             {activePanel === "admin" ? (
               <AdminPanel
                 demandEvents={activeDemandEvents}
+                homeBase={game.homeBase}
                 nowMs={nowMs}
                 isBusy={isBusy}
                 onCreateBulletin={startCreateBulletin}
                 onBeginEvent={startDemandEventCenterSelection}
+                onSetHomeBase={startHomeBaseSelection}
                 onEditShopLevels={startShopLevelEditor}
                 onEndEvent={endDemandEvent}
               />
@@ -834,6 +1137,21 @@ export default function App() {
           isBusy={isBusy}
           onConfirm={confirmRestock}
           onCancel={cancelRestock}
+        />
+      ) : null}
+
+      {pendingExportRestockPin ? (
+        <ExportRestockConfirmPanel
+          pin={pendingExportRestockPin}
+          warehouses={ownWarehouses}
+          selectedWarehouseId={exportRestockWarehouseId}
+          shopLevelConfig={shopLevelConfig}
+          pointsBalance={game.profile?.pointsBalance ?? 0}
+          isBusy={isBusy}
+          nowMs={nowMs}
+          onSelectWarehouse={setExportRestockWarehouseId}
+          onConfirm={confirmExportRestock}
+          onCancel={cancelExportRestock}
         />
       ) : null}
 
@@ -951,6 +1269,232 @@ function BuildPanel({
   );
 }
 
+function ExportBuildPanel({
+  warehouses,
+  homeBase,
+  selectedWarehouse,
+  warehouseTiers,
+  selectedWarehouseTier,
+  selectedBuildType,
+  selectedShopType,
+  warehouseName,
+  shopName,
+  pointsBalance,
+  isBusy,
+  isDemoMode,
+  hasPlayerLocation,
+  nowMs,
+  onSelectWarehouseTier,
+  onWarehouseNameChange,
+  onPreviewWarehouseBuild,
+  onStartExportBuild,
+  onRestockWarehouse,
+  onSelectBuildType,
+  onShopNameChange,
+  onPreviewExportBuild,
+  onCancelExportBuild
+}: {
+  warehouses: Warehouse[];
+  homeBase: HomeBase | null;
+  selectedWarehouse: Warehouse | null;
+  warehouseTiers: typeof WAREHOUSE_TIERS;
+  selectedWarehouseTier: WarehouseTier | null;
+  selectedBuildType: PinType | null;
+  selectedShopType: ShopTypeOption | null;
+  warehouseName: string;
+  shopName: string;
+  pointsBalance: number;
+  isBusy: boolean;
+  isDemoMode: boolean;
+  hasPlayerLocation: boolean;
+  nowMs: number;
+  onSelectWarehouseTier: (tier: WarehouseTier | null) => void;
+  onWarehouseNameChange: (value: string) => void;
+  onPreviewWarehouseBuild: () => void;
+  onStartExportBuild: (warehouseId: string) => void;
+  onRestockWarehouse: (warehouseId: string) => void;
+  onSelectBuildType: (pinType: PinType | null) => void;
+  onShopNameChange: (value: string) => void;
+  onPreviewExportBuild: () => void;
+  onCancelExportBuild: () => void;
+}) {
+  const selectedWarehouseOption = warehouseTiers.find((option) => option.tier === selectedWarehouseTier) ?? null;
+
+  if (selectedWarehouse) {
+    const canUseWarehouse = isWarehouseCreditAvailable(selectedWarehouse);
+
+    return (
+      <div className="panel-stack">
+        <button className="text-action" type="button" onClick={onCancelExportBuild}>
+          Back to warehouses
+        </button>
+        <div className="selected-build-type">
+          <span>
+            <strong>{selectedWarehouse.name}</strong>
+            <small>{formatWarehouseStatus(selectedWarehouse, nowMs)} · {formatRadiusMeters(selectedWarehouse.radiusM)} reach</small>
+          </span>
+          <b>{formatTokenAmount(GAME_CONFIG.exportShopCost)}</b>
+        </div>
+        {!homeBase ? (
+          <p className="muted">An admin needs to set the home base before export shops can be built.</p>
+        ) : null}
+        {!canUseWarehouse ? (
+          <p className="muted">This warehouse needs to be restocked before it can power another export transaction.</p>
+        ) : null}
+        {!selectedShopType ? (
+          <div className="shop-type-list">
+            {SHOP_TYPES.map((option) => (
+              <button
+                className="shop-type-button"
+                type="button"
+                key={option.pinType}
+                onClick={() => onSelectBuildType(option.pinType)}
+                disabled={isBusy || !homeBase || !canUseWarehouse || pointsBalance < GAME_CONFIG.exportShopCost}
+              >
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.blurb}</small>
+                </span>
+                <b>{formatTokenAmount(GAME_CONFIG.exportShopCost)}</b>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <button className="text-action" type="button" onClick={() => onSelectBuildType(null)}>
+              Change type
+            </button>
+            <label className="field">
+              <span>Shop name</span>
+              <input
+                value={shopName}
+                placeholder={selectedShopType.label}
+                onChange={(event) => onShopNameChange(event.target.value)}
+                maxLength={42}
+              />
+            </label>
+            <div className="metric-row">
+              <span>Cost</span>
+              <strong>{formatTokenAmount(GAME_CONFIG.exportShopCost)}</strong>
+            </div>
+            <div className="metric-row">
+              <span>Home base</span>
+              <strong>{homeBase ? formatCoordinatePair(homeBase) : "Not set"}</strong>
+            </div>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={onPreviewExportBuild}
+              disabled={isBusy || !homeBase || !canUseWarehouse || pointsBalance < GAME_CONFIG.exportShopCost}
+            >
+              <MapPin size={20} />
+              Choose Shop Spot
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel-stack">
+      <section className="panel-subsection">
+        <div className="panel-subtitle">
+          <h3>Your Warehouses</h3>
+        </div>
+        {warehouses.length === 0 ? (
+          <p className="muted">No warehouses yet.</p>
+        ) : (
+          <div className="stack-list">
+            {warehouses.map((warehouse) => {
+              const canUseWarehouse = isWarehouseCreditAvailable(warehouse);
+              const canRestock = canRestockWarehouse(warehouse, nowMs);
+
+              return (
+                <div className="warehouse-row" key={warehouse.id}>
+                  <span>
+                    <strong>{warehouse.name}</strong>
+                    <small>{formatWarehouseStatus(warehouse, nowMs)} · {formatRadiusMeters(warehouse.radiusM)} reach</small>
+                  </span>
+                  {canUseWarehouse ? (
+                    <button className="secondary-action" type="button" onClick={() => onStartExportBuild(warehouse.id)} disabled={isBusy}>
+                      Use
+                    </button>
+                  ) : (
+                    <button className="upgrade-action" type="button" onClick={() => onRestockWarehouse(warehouse.id)} disabled={isBusy || !canRestock || pointsBalance < GAME_CONFIG.warehouseRestockCost}>
+                      Restock
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="panel-subsection">
+        <div className="panel-subtitle">
+          <h3>Build Warehouse</h3>
+        </div>
+        {!selectedWarehouseOption ? (
+          <div className="shop-type-list">
+            {warehouseTiers.map((option) => (
+              <button
+                className="shop-type-button"
+                type="button"
+                key={option.tier}
+                onClick={() => onSelectWarehouseTier(option.tier)}
+                disabled={isBusy || pointsBalance < GAME_CONFIG.warehouseCost}
+              >
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.blurb}</small>
+                </span>
+                <b>{formatTokenAmount(GAME_CONFIG.warehouseCost)}</b>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <button className="text-action" type="button" onClick={() => onSelectWarehouseTier(null)}>
+              Change tier
+            </button>
+            <div className="selected-build-type">
+              <span>
+                <strong>{selectedWarehouseOption.label}</strong>
+                <small>{selectedWarehouseOption.blurb}</small>
+              </span>
+              <b>{formatTokenAmount(GAME_CONFIG.warehouseCost)}</b>
+            </div>
+            <label className="field">
+              <span>Warehouse name</span>
+              <input
+                value={warehouseName}
+                placeholder={selectedWarehouseOption.label}
+                onChange={(event) => onWarehouseNameChange(event.target.value)}
+                maxLength={42}
+              />
+            </label>
+            <div className="metric-row">
+              <span>Location</span>
+              <strong>{isDemoMode ? "Simulated" : hasPlayerLocation ? "GPS ready" : "GPS on preview"}</strong>
+            </div>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={onPreviewWarehouseBuild}
+              disabled={isBusy || pointsBalance < GAME_CONFIG.warehouseCost}
+            >
+              <WarehouseIcon size={20} />
+              Preview Warehouse
+            </button>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function BuildConfirmBar({
   build,
   isBusy,
@@ -974,6 +1518,113 @@ function BuildConfirmBar({
           Cancel
         </button>
         <button className="primary-action" type="button" onClick={onConfirm} disabled={isBusy}>
+          <Plus size={18} />
+          Confirm
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function WarehouseBuildConfirmBar({
+  build,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  build: PendingWarehouseBuild;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="build-confirm-bar">
+      <div>
+        <span>{build.label}</span>
+        <strong>{build.name}</strong>
+        <small>{formatTokenAmount(build.costPoints)} · {formatRadiusMeters(build.radiusM)} reach</small>
+      </div>
+      <div className="build-confirm-actions">
+        <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+          Cancel
+        </button>
+        <button className="primary-action" type="button" onClick={onConfirm} disabled={isBusy}>
+          <WarehouseIcon size={18} />
+          Confirm
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function HomeBaseConfirmBar({
+  center,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  center: EventCenter;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="build-confirm-bar event-confirm-bar">
+      <div>
+        <span>Home base</span>
+        <strong>Confirm map center</strong>
+        <small>{formatCoordinatePair(center)}</small>
+      </div>
+      <div className="build-confirm-actions">
+        <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+          Cancel
+        </button>
+        <button className="primary-action" type="button" onClick={onConfirm} disabled={isBusy}>
+          <MapPin size={18} />
+          Confirm
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ExportTargetConfirmBar({
+  build,
+  warehouse,
+  center,
+  homeBase,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  build: PendingExportBuild;
+  warehouse: Warehouse | null;
+  center: EventCenter;
+  homeBase: HomeBase | null;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const distanceFromHome = homeBase
+    ? distanceMeters(homeBase, center)
+    : Number.POSITIVE_INFINITY;
+  const radiusM = warehouse?.radiusM ?? 0;
+  const isInsideRadius = Number.isFinite(distanceFromHome) && distanceFromHome <= radiusM;
+
+  return (
+    <section className="build-confirm-bar">
+      <div>
+        <span>{build.label}</span>
+        <strong>{build.name}</strong>
+        <small>
+          {warehouse ? `${formatRadiusMeters(Math.round(distanceFromHome))} from home · ${formatRadiusMeters(radiusM)} reach` : "Choose a warehouse"}
+        </small>
+      </div>
+      <div className="build-confirm-actions">
+        <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+          Cancel
+        </button>
+        <button className="primary-action" type="button" onClick={onConfirm} disabled={isBusy || !warehouse || !homeBase || !isInsideRadius}>
           <Plus size={18} />
           Confirm
         </button>
@@ -1181,18 +1832,22 @@ function MessagesPanel({
 
 function AdminPanel({
   demandEvents,
+  homeBase,
   nowMs,
   isBusy,
   onCreateBulletin,
   onBeginEvent,
+  onSetHomeBase,
   onEditShopLevels,
   onEndEvent
 }: {
   demandEvents: DemandEvent[];
+  homeBase: HomeBase | null;
   nowMs: number;
   isBusy: boolean;
   onCreateBulletin: () => void;
   onBeginEvent: () => void;
+  onSetHomeBase: () => void;
   onEditShopLevels: () => void;
   onEndEvent: (eventId: string) => void;
 }) {
@@ -1211,6 +1866,13 @@ function AdminPanel({
           <small>Create a timed double income zone on the map.</small>
         </span>
         <Zap size={20} />
+      </button>
+      <button className="shop-type-button" type="button" onClick={onSetHomeBase}>
+        <span>
+          <strong>Home Base</strong>
+          <small>{homeBase ? `Currently ${formatCoordinatePair(homeBase)}` : "Set the center point for export shops."}</small>
+        </span>
+        <MapPin size={20} />
       </button>
       <button className="shop-type-button" type="button" onClick={onEditShopLevels}>
         <span>
@@ -1889,6 +2551,29 @@ function formatCoordinatePair(center: EventCenter): string {
   return `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`;
 }
 
+function isWarehouseCreditAvailable(warehouse: Warehouse): boolean {
+  return warehouse.creditAvailable && warehouse.status === "available";
+}
+
+function canRestockWarehouse(warehouse: Warehouse, nowMs: number): boolean {
+  if (warehouse.creditAvailable) return false;
+  if (!warehouse.availableAt) return true;
+
+  const availableAt = new Date(warehouse.availableAt).getTime();
+  return Number.isFinite(availableAt) && availableAt <= nowMs;
+}
+
+function formatWarehouseStatus(warehouse: Warehouse, nowMs: number): string {
+  if (warehouse.creditAvailable) return "Ready";
+  if (!warehouse.availableAt) return "Empty";
+
+  const availableAt = new Date(warehouse.availableAt).getTime();
+  if (!Number.isFinite(availableAt) || availableAt <= nowMs) return "Ready to restock";
+
+  const hours = Math.ceil((availableAt - nowMs) / 3_600_000);
+  return hours > 24 ? `${Math.ceil(hours / 24)}d cooldown` : `${hours}h cooldown`;
+}
+
 function normalizeShopLevelConfig(config: ShopLevelConfig | null | undefined): ShopLevelConfig {
   const thresholds = Array.isArray(config?.thresholdsPoints)
     ? config.thresholdsPoints
@@ -2105,6 +2790,100 @@ function RestockConfirmPanel({
               type="button"
               onClick={onConfirm}
               disabled={isBusy || !hasEnoughTokens}
+            >
+              <PackageCheck size={18} />
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExportRestockConfirmPanel({
+  pin,
+  warehouses,
+  selectedWarehouseId,
+  shopLevelConfig,
+  pointsBalance,
+  isBusy,
+  nowMs,
+  onSelectWarehouse,
+  onConfirm,
+  onCancel
+}: {
+  pin: GamePin;
+  warehouses: Warehouse[];
+  selectedWarehouseId: string | null;
+  shopLevelConfig: ShopLevelConfig;
+  pointsBalance: number;
+  isBusy: boolean;
+  nowMs: number;
+  onSelectWarehouse: (warehouseId: string | null) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const availableWarehouses = warehouses.filter(isWarehouseCreditAvailable);
+  const selectedWarehouse = availableWarehouses.find((warehouse) => warehouse.id === selectedWarehouseId) ?? null;
+  const hasEnoughTokens = pointsBalance >= GAME_CONFIG.restockCost;
+
+  return (
+    <section className="screen-panel screen-panel--confirm" role="dialog" aria-modal="true">
+      <div className="screen-panel__header">
+        <div className="section-title">
+          <PackageCheck size={20} />
+          <h2>Export Restock</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={onCancel} title="Close">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="screen-panel__body">
+        <div className="confirm-stack">
+          <p className="confirm-question">
+            Spend {formatCompactTokenCost(GAME_CONFIG.restockCost)} and use a warehouse credit to restock?
+          </p>
+          <div className="selected-build-type">
+            <span>
+              <strong>
+                <ShopNameWithLevel pin={pin} config={shopLevelConfig} />
+              </strong>
+              <small>{pin.busyLabel} · {formatHourlyTokenRate(pin.currentHourlyRate)}</small>
+            </span>
+            <b>{formatCompactTokenCost(GAME_CONFIG.restockCost)}</b>
+          </div>
+          {availableWarehouses.length === 0 ? (
+            <p className="muted">No warehouse credits available. Restock a warehouse first.</p>
+          ) : (
+            <div className="stack-list">
+              {availableWarehouses.map((warehouse) => (
+                <button
+                  className={warehouse.id === selectedWarehouseId ? "shop-type-button shop-type-button--selected" : "shop-type-button"}
+                  type="button"
+                  key={warehouse.id}
+                  onClick={() => onSelectWarehouse(warehouse.id)}
+                  disabled={isBusy}
+                >
+                  <span>
+                    <strong>{warehouse.name}</strong>
+                    <small>{formatWarehouseStatus(warehouse, nowMs)} · {formatRadiusMeters(warehouse.radiusM)} reach</small>
+                  </span>
+                  <WarehouseIcon size={20} />
+                </button>
+              ))}
+            </div>
+          )}
+          {!hasEnoughTokens ? <p className="muted">Not enough tokens.</p> : null}
+          <div className="build-confirm-actions">
+            <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+              Cancel
+            </button>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={onConfirm}
+              disabled={isBusy || !hasEnoughTokens || !selectedWarehouse}
             >
               <PackageCheck size={18} />
               Confirm

@@ -55,6 +55,22 @@ where id = (
 
 Admins can open the in-map Admin button and send bulletin messages to all players.
 
+## Make A Player An Export Player
+
+After running the export warehouse migration, set a player's mode manually:
+
+```sql
+update public.profiles
+set player_mode = 'export'
+where id = (
+  select id
+  from auth.users
+  where lower(email) = lower('maya@players.mudslingers.test')
+);
+```
+
+Export players cannot build or restock shops by the normal map-location flow. They build warehouses at their physical location, then spend warehouse credits to build or restock shops near the admin-set home base.
+
 ## Suggested Colours
 
 ```text

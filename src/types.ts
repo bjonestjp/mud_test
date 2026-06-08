@@ -2,6 +2,10 @@ export type PinType = "standard" | "temporary";
 
 export type PinStatus = "stocked" | "needs_restock" | "expired" | "disabled";
 
+export type PlayerMode = "local" | "export";
+
+export type WarehouseTier = "small" | "medium" | "large";
+
 export type BusyLabel = "Quiet" | "Steady" | "Busy" | "Packed";
 
 export interface PlayerProfile {
@@ -10,6 +14,7 @@ export interface PlayerProfile {
   pointsBalance: number;
   playerColor: string;
   isAdmin: boolean;
+  playerMode: PlayerMode;
 }
 
 export interface GamePin {
@@ -77,6 +82,29 @@ export interface DemandEvent {
   endedAt: string | null;
 }
 
+export interface Warehouse {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  ownerColor: string;
+  name: string;
+  tier: WarehouseTier;
+  radiusM: number;
+  lat: number;
+  lng: number;
+  placedAt: string;
+  lastUsedAt: string | null;
+  availableAt: string | null;
+  creditAvailable: boolean;
+  status: "available" | "cooldown" | "empty";
+}
+
+export interface HomeBase {
+  lat: number;
+  lng: number;
+  updatedAt: string | null;
+}
+
 export interface ShopLevelConfig {
   thresholdsPoints: number[];
   bonusPointsPerLevel: number;
@@ -89,6 +117,8 @@ export interface GameState {
   scoreHistory: ScoreHistoryPoint[];
   bulletins: Bulletin[];
   demandEvents: DemandEvent[];
+  warehouses: Warehouse[];
+  homeBase: HomeBase | null;
   shopLevelConfig: ShopLevelConfig;
   isDemoMode: boolean;
 }
@@ -150,6 +180,39 @@ export interface UpdateShopLevelConfigInput {
   thresholdsPoints: number[];
 }
 
+export interface PlaceWarehouseInput {
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+  name: string;
+  tier: WarehouseTier;
+}
+
+export interface RestockWarehouseInput {
+  warehouseId: string;
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+}
+
+export interface ExportPlacePinInput {
+  warehouseId: string;
+  lat: number;
+  lng: number;
+  name: string;
+  pinType: PinType;
+}
+
+export interface ExportRestockPinInput {
+  warehouseId: string;
+  pinId: string;
+}
+
+export interface UpdateHomeBaseInput {
+  lat: number;
+  lng: number;
+}
+
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
@@ -165,4 +228,9 @@ export interface GameAdapter {
   beginDemandEvent(input: BeginDemandEventInput): Promise<GameState>;
   endDemandEvent(input: EndDemandEventInput): Promise<GameState>;
   updateShopLevelConfig(input: UpdateShopLevelConfigInput): Promise<GameState>;
+  placeWarehouse(input: PlaceWarehouseInput): Promise<GameState>;
+  restockWarehouse(input: RestockWarehouseInput): Promise<GameState>;
+  exportPlacePin(input: ExportPlacePinInput): Promise<GameState>;
+  exportRestockPin(input: ExportRestockPinInput): Promise<GameState>;
+  updateHomeBase(input: UpdateHomeBaseInput): Promise<GameState>;
 }

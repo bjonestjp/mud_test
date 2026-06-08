@@ -17,17 +17,24 @@ import type {
   DeleteBulletinInput,
   DemandEvent,
   EndDemandEventInput,
+  ExportPlacePinInput,
+  ExportRestockPinInput,
   GameAdapter,
   GamePin,
   GameState,
+  HomeBase,
   LeaderboardRow,
   PlacePinInput,
+  PlaceWarehouseInput,
   PlayerProfile,
   RestockPinInput,
+  RestockWarehouseInput,
   ScoreHistoryPoint,
   ShopLevelConfig,
   UpdateBulletinInput,
-  UpdateShopLevelConfigInput
+  UpdateHomeBaseInput,
+  UpdateShopLevelConfigInput,
+  Warehouse
 } from "../types";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -111,6 +118,8 @@ class SupabaseGameAdapter implements GameAdapter {
         scoreHistory: [],
         bulletins: [],
         demandEvents: [],
+        warehouses: [],
+        homeBase: null,
         shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
         isDemoMode: false
       };
@@ -118,12 +127,14 @@ class SupabaseGameAdapter implements GameAdapter {
 
     await this.supabase.rpc("settle_player_income");
 
-    const [profile, pins, leaderboard, bulletins, demandEvents, shopLevelConfig] = await Promise.all([
+    const [profile, pins, leaderboard, bulletins, demandEvents, warehouses, homeBase, shopLevelConfig] = await Promise.all([
       this.fetchProfile(user.id),
       this.fetchPins(),
       this.fetchLeaderboard(),
       this.fetchBulletins(),
       this.fetchDemandEvents(),
+      this.fetchWarehouses(),
+      this.fetchHomeBase(),
       this.fetchShopLevelConfig()
     ]);
     const scoreHistory = await this.fetchScoreHistory(leaderboard);
@@ -135,6 +146,8 @@ class SupabaseGameAdapter implements GameAdapter {
       scoreHistory,
       bulletins,
       demandEvents,
+      warehouses,
+      homeBase,
       shopLevelConfig,
       isDemoMode: false
     };
@@ -262,7 +275,73 @@ class SupabaseGameAdapter implements GameAdapter {
     return this.refresh();
   }
 
+  async placeWarehouse(input: PlaceWarehouseInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("place_warehouse", {
+      p_lat: input.lat,
+      p_lng: input.lng,
+      p_name: input.name,
+      p_tier: input.tier,
+      p_accuracy_m: input.accuracy
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async restockWarehouse(input: RestockWarehouseInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("restock_warehouse", {
+      p_warehouse_id: input.warehouseId,
+      p_lat: input.lat,
+      p_lng: input.lng,
+      p_accuracy_m: input.accuracy
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async exportPlacePin(input: ExportPlacePinInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("export_place_pin", {
+      p_warehouse_id: input.warehouseId,
+      p_lat: input.lat,
+      p_lng: input.lng,
+      p_name: input.name,
+      p_pin_type: input.pinType
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async exportRestockPin(input: ExportRestockPinInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("export_restock_pin", {
+      p_warehouse_id: input.warehouseId,
+      p_pin_id: input.pinId
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async updateHomeBase(input: UpdateHomeBaseInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("update_home_base", {
+      p_lat: input.lat,
+      p_lng: input.lng
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
   private async fetchProfile(userId: string): Promise<PlayerProfile | null> {
+    const withMode = await this.supabase
+      .from("profiles")
+      .select("id, display_name, points_balance, player_color, account_role, player_mode")
+      .eq("id", userId)
+      .single();
+
+    if (!withMode.error) return mapProfileRow(withMode.data, userId);
+
     const withRole = await this.supabase
       .from("profiles")
       .select("id, display_name, points_balance, player_color, account_role")
@@ -366,6 +445,34 @@ class SupabaseGameAdapter implements GameAdapter {
     }
 
     return (data ?? []).map(mapDemandEventRow).filter(isActiveDemandEvent);
+  }
+
+  private async fetchWarehouses(): Promise<Warehouse[]> {
+    const { data, error } = await this.supabase.rpc("get_visible_warehouses");
+
+    if (error) {
+      const message = error.message ?? "";
+      if (error.code === "PGRST202" || message.includes("get_visible_warehouses")) {
+        return [];
+      }
+      throw error;
+    }
+
+    return (data ?? []).map(mapWarehouseRow).filter(hasWarehouseCoordinate);
+  }
+
+  private async fetchHomeBase(): Promise<HomeBase | null> {
+    const { data, error } = await this.supabase.rpc("get_home_base");
+
+    if (error) {
+      const message = error.message ?? "";
+      if (error.code === "PGRST202" || message.includes("get_home_base")) {
+        return null;
+      }
+      throw error;
+    }
+
+    return mapHomeBase(data);
   }
 
   private async fetchShopLevelConfig(): Promise<ShopLevelConfig> {
@@ -562,7 +669,8 @@ function mapProfileRow(row: Record<string, unknown>, fallbackKey: string): Playe
     displayName: String(row.display_name),
     pointsBalance: Number(row.points_balance),
     playerColor: safeColor(row.player_color, fallbackKey),
-    isAdmin: row.account_role === "admin"
+    isAdmin: row.account_role === "admin",
+    playerMode: row.player_mode === "export" ? "export" : "local"
   };
 }
 
@@ -590,6 +698,50 @@ function mapDemandEventRow(row: Record<string, unknown>): DemandEvent {
     startsAt: String(row.starts_at),
     endsAt: String(row.ends_at),
     endedAt: row.ended_at ? String(row.ended_at) : null
+  };
+}
+
+function mapWarehouseRow(row: Record<string, unknown>): Warehouse {
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    ownerName: String(row.owner_name),
+    ownerColor: safeColor(row.owner_color, String(row.owner_id)),
+    name: String(row.name),
+    tier: row.tier === "medium" || row.tier === "large" ? row.tier : "small",
+    radiusM: safeNumber(row.radius_m, 100),
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    placedAt: String(row.placed_at),
+    lastUsedAt: row.last_used_at ? String(row.last_used_at) : null,
+    availableAt: row.available_at ? String(row.available_at) : null,
+    creditAvailable: Boolean(row.credit_available),
+    status: row.status === "cooldown" || row.status === "empty" ? row.status : "available"
+  };
+}
+
+function hasWarehouseCoordinate(warehouse: Warehouse): boolean {
+  return (
+    Number.isFinite(warehouse.lat) &&
+    Number.isFinite(warehouse.lng) &&
+    Math.abs(warehouse.lat) <= 90 &&
+    Math.abs(warehouse.lng) <= 180
+  );
+}
+
+function mapHomeBase(value: unknown): HomeBase | null {
+  if (typeof value !== "object" || value === null) return null;
+
+  const record = value as Record<string, unknown>;
+  const lat = Number(record.lat);
+  const lng = Number(record.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return {
+    lat,
+    lng,
+    updatedAt: record.updated_at ? String(record.updated_at) : null
   };
 }
 

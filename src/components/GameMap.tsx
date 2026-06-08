@@ -2,20 +2,24 @@ import { useEffect, useMemo, useRef } from "react";
 import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
 import { competitionRadiusForLevel, EDINBURGH_CENTER } from "../lib/constants";
 import { competitionPressure, distanceMeters } from "../lib/geo";
-import type { DemandEvent, GamePin, LocationReading } from "../types";
+import type { DemandEvent, GamePin, HomeBase, LocationReading, Warehouse } from "../types";
 
 interface GameMapProps {
   pins: GamePin[];
+  warehouses: Warehouse[];
+  homeBase: HomeBase | null;
   currentPlayerId: string | null;
   playerLocation: LocationReading | null;
   focusLocation: LocationFocus | null;
   buildPreview: BuildPreview | null;
+  warehousePreview: WarehousePreview | null;
   demandEvents: DemandEvent[];
   selectedPinId: string | null;
   showAllRadii: boolean;
+  exportTargetRadiusM: number | null;
   nowMs: number;
   isDemoMode: boolean;
-  isChoosingDemandEventCenter: boolean;
+  isChoosingMapTarget: boolean;
   onSelectPin: (pin: GamePin) => void;
   onMapCenterChange: (center: { lat: number; lng: number }) => void;
 }
@@ -29,6 +33,12 @@ export interface LocationFocus {
 interface BuildPreview {
   name: string;
   pinType: GamePin["pinType"];
+  location: LocationReading;
+}
+
+interface WarehousePreview {
+  name: string;
+  radiusM: number;
   location: LocationReading;
 }
 
@@ -50,6 +60,12 @@ const SHINGLE_RING_STEP_PX = 11;
 const ALL_RADIUS_SOURCE_ID = "all-shop-radii";
 const ALL_RADIUS_FILL_LAYER_ID = "all-shop-radii-fill";
 const ALL_RADIUS_LINE_LAYER_ID = "all-shop-radii-line";
+const WAREHOUSE_RADIUS_SOURCE_ID = "warehouse-radii";
+const WAREHOUSE_RADIUS_FILL_LAYER_ID = "warehouse-radii-fill";
+const WAREHOUSE_RADIUS_LINE_LAYER_ID = "warehouse-radii-line";
+const EXPORT_TARGET_SOURCE_ID = "export-target-radius";
+const EXPORT_TARGET_FILL_LAYER_ID = "export-target-radius-fill";
+const EXPORT_TARGET_LINE_LAYER_ID = "export-target-radius-line";
 const COMPETITION_RADIUS_SOURCE_ID = "competition-radius";
 const COMPETITION_RADIUS_FILL_LAYER_ID = "competition-radius-fill";
 const COMPETITION_RADIUS_LINE_LAYER_ID = "competition-radius-line";
@@ -63,24 +79,31 @@ const EMPTY_RADIUS_DATA: Parameters<GeoJSONSource["setData"]>[0] = {
 
 export function GameMap({
   pins,
+  warehouses,
+  homeBase,
   currentPlayerId,
   playerLocation,
   focusLocation,
   buildPreview,
+  warehousePreview,
   demandEvents,
   selectedPinId,
   showAllRadii,
+  exportTargetRadiusM,
   nowMs,
   isDemoMode,
-  isChoosingDemandEventCenter,
+  isChoosingMapTarget,
   onSelectPin,
   onMapCenterChange
 }: GameMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
+  const warehouseMarkersRef = useRef<Marker[]>([]);
   const playerLocationMarkerRef = useRef<Marker | null>(null);
   const buildPreviewMarkerRef = useRef<Marker | null>(null);
+  const warehousePreviewMarkerRef = useRef<Marker | null>(null);
+  const homeBaseMarkerRef = useRef<Marker | null>(null);
   const demandEventLabelMarkersRef = useRef<Marker[]>([]);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
   const selectedPin = useMemo(
@@ -126,10 +149,16 @@ export function GameMap({
     return () => {
       markersRef.current.forEach((entry) => entry.marker.remove());
       markersRef.current = [];
+      warehouseMarkersRef.current.forEach((marker) => marker.remove());
+      warehouseMarkersRef.current = [];
       playerLocationMarkerRef.current?.remove();
       playerLocationMarkerRef.current = null;
       buildPreviewMarkerRef.current?.remove();
       buildPreviewMarkerRef.current = null;
+      warehousePreviewMarkerRef.current?.remove();
+      warehousePreviewMarkerRef.current = null;
+      homeBaseMarkerRef.current?.remove();
+      homeBaseMarkerRef.current = null;
       demandEventLabelMarkersRef.current.forEach((marker) => marker.remove());
       demandEventLabelMarkersRef.current = [];
       map.remove();
@@ -219,6 +248,48 @@ export function GameMap({
     const map = mapRef.current;
     if (!map) return;
 
+    warehouseMarkersRef.current.forEach((marker) => marker.remove());
+    warehouseMarkersRef.current = warehouses.filter(hasValidCoordinate).map((warehouse) => {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = [
+        "warehouse-marker",
+        warehouse.creditAvailable ? "warehouse-marker--ready" : "warehouse-marker--empty"
+      ]
+        .filter(Boolean)
+        .join(" ");
+      element.title = warehouse.name;
+      element.style.setProperty("--warehouse-color", warehouse.ownerColor);
+      element.setAttribute("aria-label", warehouse.name);
+
+      return new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat([warehouse.lng, warehouse.lat])
+        .addTo(map);
+    });
+
+    const updateWarehouseLayers = () => {
+      ensureWarehouseRadiusLayers(map);
+      const source = map.getSource(WAREHOUSE_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
+      source?.setData(createWarehouseRadiusFeatureCollection(warehouses));
+    };
+
+    if (map.isStyleLoaded()) {
+      updateWarehouseLayers();
+    } else {
+      map.once("load", updateWarehouseLayers);
+    }
+
+    return () => {
+      map.off("load", updateWarehouseLayers);
+      warehouseMarkersRef.current.forEach((marker) => marker.remove());
+      warehouseMarkersRef.current = [];
+    };
+  }, [warehouses]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
     const updateAllRadiusLayer = () => {
       ensureAllShopRadiusLayers(map);
       const source = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
@@ -239,6 +310,48 @@ export function GameMap({
       map.off("load", updateAllRadiusLayer);
     };
   }, [showAllRadii, visiblePins]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!homeBase || !hasValidCoordinate(homeBase)) {
+      homeBaseMarkerRef.current?.remove();
+      homeBaseMarkerRef.current = null;
+    } else if (!homeBaseMarkerRef.current) {
+      const element = document.createElement("div");
+      element.className = "home-base-marker";
+      element.title = "Home base";
+      homeBaseMarkerRef.current = new maplibregl.Marker({
+        element,
+        anchor: "center"
+      })
+        .setLngLat([homeBase.lng, homeBase.lat])
+        .addTo(map);
+    } else {
+      homeBaseMarkerRef.current.setLngLat([homeBase.lng, homeBase.lat]);
+    }
+
+    const updateExportTargetLayer = () => {
+      ensureExportTargetLayers(map);
+      const source = map.getSource(EXPORT_TARGET_SOURCE_ID) as GeoJSONSource | undefined;
+      source?.setData(
+        homeBase && exportTargetRadiusM
+          ? createRadiusFeatureCollection(homeBase, exportTargetRadiusM)
+          : EMPTY_RADIUS_DATA
+      );
+    };
+
+    if (map.isStyleLoaded()) {
+      updateExportTargetLayer();
+      return;
+    }
+
+    map.once("load", updateExportTargetLayer);
+    return () => {
+      map.off("load", updateExportTargetLayer);
+    };
+  }, [exportTargetRadiusM, homeBase]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -366,6 +479,34 @@ export function GameMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map) return;
+
+    if (!warehousePreview || !hasValidCoordinate(warehousePreview.location)) {
+      warehousePreviewMarkerRef.current?.remove();
+      warehousePreviewMarkerRef.current = null;
+      return;
+    }
+
+    if (!warehousePreviewMarkerRef.current) {
+      const element = document.createElement("div");
+      element.className = "warehouse-preview-marker";
+      element.title = warehousePreview.name;
+      warehousePreviewMarkerRef.current = new maplibregl.Marker({
+        element,
+        anchor: "center"
+      })
+        .setLngLat([warehousePreview.location.lng, warehousePreview.location.lat])
+        .addTo(map);
+    } else {
+      warehousePreviewMarkerRef.current.setLngLat([
+        warehousePreview.location.lng,
+        warehousePreview.location.lat
+      ]);
+    }
+  }, [warehousePreview]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !selectedPin) return;
 
     map.easeTo({
@@ -389,7 +530,7 @@ export function GameMap({
   return (
     <div className="map-shell">
       <div ref={containerRef} className="map-canvas" />
-      {isDemoMode || isChoosingDemandEventCenter ? <div className="map-crosshair" aria-hidden="true" /> : null}
+      {isDemoMode || isChoosingMapTarget ? <div className="map-crosshair" aria-hidden="true" /> : null}
     </div>
   );
 }
@@ -444,6 +585,76 @@ function ensureAllShopRadiusLayers(map: Map): void {
         ]
       }
     }, beforeSelectedRadiusLayer);
+  }
+}
+
+function ensureWarehouseRadiusLayers(map: Map): void {
+  if (!map.getSource(WAREHOUSE_RADIUS_SOURCE_ID)) {
+    map.addSource(WAREHOUSE_RADIUS_SOURCE_ID, {
+      type: "geojson",
+      data: EMPTY_RADIUS_DATA
+    });
+  }
+
+  if (!map.getLayer(WAREHOUSE_RADIUS_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: WAREHOUSE_RADIUS_FILL_LAYER_ID,
+      type: "fill",
+      source: WAREHOUSE_RADIUS_SOURCE_ID,
+      paint: {
+        "fill-color": ["get", "ownerColor"],
+        "fill-opacity": 0.055
+      }
+    });
+  }
+
+  if (!map.getLayer(WAREHOUSE_RADIUS_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: WAREHOUSE_RADIUS_LINE_LAYER_ID,
+      type: "line",
+      source: WAREHOUSE_RADIUS_SOURCE_ID,
+      paint: {
+        "line-color": ["get", "ownerColor"],
+        "line-opacity": 0.52,
+        "line-width": 1.5,
+        "line-dasharray": [1.4, 1.2]
+      }
+    });
+  }
+}
+
+function ensureExportTargetLayers(map: Map): void {
+  if (!map.getSource(EXPORT_TARGET_SOURCE_ID)) {
+    map.addSource(EXPORT_TARGET_SOURCE_ID, {
+      type: "geojson",
+      data: EMPTY_RADIUS_DATA
+    });
+  }
+
+  if (!map.getLayer(EXPORT_TARGET_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: EXPORT_TARGET_FILL_LAYER_ID,
+      type: "fill",
+      source: EXPORT_TARGET_SOURCE_ID,
+      paint: {
+        "fill-color": "#21745c",
+        "fill-opacity": 0.11
+      }
+    });
+  }
+
+  if (!map.getLayer(EXPORT_TARGET_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: EXPORT_TARGET_LINE_LAYER_ID,
+      type: "line",
+      source: EXPORT_TARGET_SOURCE_ID,
+      paint: {
+        "line-color": "#21745c",
+        "line-opacity": 0.74,
+        "line-width": 2,
+        "line-dasharray": [2, 1.2]
+      }
+    });
   }
 }
 
@@ -638,6 +849,26 @@ function createShopRadiusFeatureCollection(
             competitionRadiusForLevel(pin.radiusLevel)
           )
         ]
+      }
+    }))
+  };
+}
+
+function createWarehouseRadiusFeatureCollection(
+  warehouses: Warehouse[]
+): Parameters<GeoJSONSource["setData"]>[0] {
+  return {
+    type: "FeatureCollection",
+    features: warehouses.filter(hasValidCoordinate).map((warehouse) => ({
+      type: "Feature",
+      properties: {
+        id: warehouse.id,
+        ownerColor: warehouse.ownerColor,
+        status: warehouse.status
+      },
+      geometry: {
+        type: "Polygon",
+        coordinates: [createRadiusCoordinates(warehouse, warehouse.radiusM)]
       }
     }))
   };
