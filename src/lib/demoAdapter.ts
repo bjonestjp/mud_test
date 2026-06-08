@@ -82,10 +82,14 @@ interface DemoStore {
   leaderboard: LeaderboardRow[];
   bulletins: Bulletin[];
   demandEvents: DemandEvent[];
-  warehouses: Warehouse[];
+  warehouses: DemoWarehouse[];
   homeBase: HomeBase | null;
   shopLevelConfig: ShopLevelConfig;
   lastSettledAt: string;
+}
+
+interface DemoWarehouse extends Warehouse {
+  disabledAt: string | null;
 }
 
 export class DemoAdapter implements GameAdapter {
@@ -261,7 +265,13 @@ export class DemoAdapter implements GameAdapter {
     if (!warehouse) throw new Error("Warehouse was not found.");
     if (warehouse.ownerId !== DEMO_PLAYER_ID) throw new Error("You can only delete your own warehouses.");
 
-    this.store.warehouses = this.store.warehouses.filter((item) => item.id !== input.warehouseId);
+    const now = new Date();
+    warehouse.disabledAt = now.toISOString();
+    warehouse.creditAvailable = false;
+    warehouse.status = "empty";
+    if (!warehouse.availableAt || new Date(warehouse.availableAt).getTime() <= now.getTime()) {
+      warehouse.availableAt = now.toISOString();
+    }
     saveStore(this.store);
     return this.state();
   }
@@ -338,6 +348,7 @@ export class DemoAdapter implements GameAdapter {
       throw new Error("Not enough tokens.");
     }
     const overlappingWarehouse = this.store.warehouses.find((warehouse) =>
+      doesWarehouseBlockPlacement(warehouse, now) &&
       distanceMeters(warehouse, input) <= warehouse.radiusM + radiusM
     );
     if (overlappingWarehouse) {
@@ -360,7 +371,8 @@ export class DemoAdapter implements GameAdapter {
         lastUsedAt: null,
         availableAt: null,
         creditAvailable: true,
-        status: "available"
+        status: "available",
+        disabledAt: null
       },
       ...this.store.warehouses
     ];
@@ -527,7 +539,7 @@ export class DemoAdapter implements GameAdapter {
       scoreHistory: buildDemoScoreHistory(this.store),
       bulletins: this.store.bulletins,
       demandEvents: activeDemandEvents(this.store.demandEvents),
-      warehouses: this.store.warehouses,
+      warehouses: visibleDemoWarehouses(this.store.warehouses),
       homeBase: this.store.homeBase,
       shopLevelConfig: this.store.shopLevelConfig,
       isDemoMode: true
@@ -731,7 +743,7 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
   };
 }
 
-function normalizeWarehouse(candidate: Partial<Warehouse>): Warehouse {
+function normalizeWarehouse(candidate: Partial<DemoWarehouse>): DemoWarehouse {
   const tier = candidate.tier === "large" || candidate.tier === "medium" ? candidate.tier : "small";
   const radiusM = Number.isFinite(candidate.radiusM)
     ? Math.max(1, Number(candidate.radiusM))
@@ -760,8 +772,21 @@ function normalizeWarehouse(candidate: Partial<Warehouse>): Warehouse {
       ? "available"
       : candidate.status === "empty"
         ? "empty"
-        : "cooldown"
+        : "cooldown",
+    disabledAt: candidate.disabledAt ?? null
   };
+}
+
+function visibleDemoWarehouses(warehouses: DemoWarehouse[]): Warehouse[] {
+  return warehouses
+    .filter((warehouse) => !warehouse.disabledAt)
+    .map(({ disabledAt: _disabledAt, ...warehouse }) => warehouse);
+}
+
+function doesWarehouseBlockPlacement(warehouse: DemoWarehouse, now: Date): boolean {
+  if (!warehouse.disabledAt) return true;
+  if (!warehouse.availableAt) return false;
+  return new Date(warehouse.availableAt).getTime() > now.getTime();
 }
 
 function normalizeHomeBase(candidate: unknown): HomeBase | null {
