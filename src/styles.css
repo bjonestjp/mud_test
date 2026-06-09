@@ -333,27 +333,23 @@ button:disabled {
 
 .warehouse-marker::before {
   position: absolute;
-  inset: 7px 5px 5px;
+  inset: 5px;
   border: 3px solid #fff;
   border-radius: 5px;
   background: var(--warehouse-color);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
   content: "";
+  transform: rotate(45deg);
 }
 
 .warehouse-marker::after {
   position: absolute;
-  top: 4px;
-  left: 7px;
-  width: 20px;
-  height: 20px;
-  border-top: 3px solid #fff;
-  border-left: 3px solid #fff;
-  background: var(--warehouse-color);
-  box-shadow: -3px -3px 0 var(--warehouse-color);
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: #fff;
   content: "";
   transform: rotate(45deg);
-  transform-origin: center;
 }
 
 .warehouse-marker--empty {
@@ -373,33 +369,33 @@ button:disabled {
   width: 36px;
   height: 36px;
   border: 0;
-  border-radius: 8px;
-  background: rgba(47, 95, 159, 0.16);
-  box-shadow:
-    0 0 0 5px rgba(47, 95, 159, 0.14),
-    0 8px 18px rgba(0, 0, 0, 0.22);
+  background: transparent;
+  overflow: visible;
 }
 
 .warehouse-preview-marker::before {
   position: absolute;
-  inset: 9px 6px 6px;
+  inset: 6px;
   border: 3px solid #fff;
   border-radius: 5px;
   background: var(--blue);
+  box-shadow:
+    0 0 0 5px rgba(47, 95, 159, 0.14),
+    0 8px 18px rgba(0, 0, 0, 0.22);
   content: "";
+  transform: rotate(45deg);
 }
 
 .warehouse-preview-marker::after {
   position: absolute;
-  top: 5px;
-  left: 8px;
-  width: 20px;
-  height: 20px;
-  border-top: 3px solid #fff;
-  border-left: 3px solid #fff;
-  background: var(--blue);
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #fff;
   content: "";
-  transform: rotate(45deg);
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 .home-base-marker {
