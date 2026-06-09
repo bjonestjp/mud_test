@@ -4,7 +4,7 @@ export type PinStatus = "stocked" | "needs_restock" | "expired" | "disabled";
 
 export type PlayerMode = "local" | "export";
 
-export type WarehouseTier = "small" | "medium" | "large";
+export type WarehouseTier = "small" | "medium" | "large" | "distance";
 
 export type BusyLabel = "Quiet" | "Steady" | "Busy" | "Packed";
 
@@ -105,6 +105,13 @@ export interface HomeBase {
   updatedAt: string | null;
 }
 
+export interface ExportPlayerHome {
+  playerId: string;
+  displayName: string;
+  playerColor: string;
+  homeBase: HomeBase | null;
+}
+
 export interface ShopLevelConfig {
   thresholdsPoints: number[];
   bonusPointsPerLevel: number;
@@ -119,6 +126,7 @@ export interface GameState {
   demandEvents: DemandEvent[];
   warehouses: Warehouse[];
   homeBase: HomeBase | null;
+  exportPlayers: ExportPlayerHome[];
   shopLevelConfig: ShopLevelConfig;
   isDemoMode: boolean;
 }
@@ -193,7 +201,6 @@ export interface PlaceWarehouseInput {
   lng: number;
   accuracy: number | null;
   name: string;
-  tier: WarehouseTier;
 }
 
 export interface RestockWarehouseInput {
@@ -221,6 +228,12 @@ export interface UpdateHomeBaseInput {
   lng: number;
 }
 
+export interface UpdateExportHomeBaseInput {
+  playerId: string;
+  lat: number;
+  lng: number;
+}
+
 export interface GameAdapter {
   isDemoMode: boolean;
   initialize(): Promise<GameState>;
@@ -243,4 +256,5 @@ export interface GameAdapter {
   exportPlacePin(input: ExportPlacePinInput): Promise<GameState>;
   exportRestockPin(input: ExportRestockPinInput): Promise<GameState>;
   updateHomeBase(input: UpdateHomeBaseInput): Promise<GameState>;
+  updateExportHomeBase(input: UpdateExportHomeBaseInput): Promise<GameState>;
 }

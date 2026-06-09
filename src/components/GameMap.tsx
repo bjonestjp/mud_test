@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
-import { competitionRadiusForLevel, EDINBURGH_CENTER } from "../lib/constants";
+import { competitionRadiusForLevel, EDINBURGH_CENTER, GAME_CONFIG } from "../lib/constants";
 import { competitionPressure, distanceMeters } from "../lib/geo";
 import type { DemandEvent, GamePin, HomeBase, LocationReading, Warehouse } from "../types";
 
@@ -869,7 +869,7 @@ function createWarehouseRadiusFeatureCollection(
       },
       geometry: {
         type: "Polygon",
-        coordinates: [createRadiusCoordinates(warehouse, warehouse.radiusM)]
+        coordinates: [createRadiusCoordinates(warehouse, GAME_CONFIG.warehouseFootprintM)]
       }
     }))
   };

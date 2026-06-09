@@ -19,6 +19,7 @@ import type {
   DeleteWarehouseInput,
   DemandEvent,
   EndDemandEventInput,
+  ExportPlayerHome,
   ExportPlacePinInput,
   ExportRestockPinInput,
   GameAdapter,
@@ -34,6 +35,7 @@ import type {
   ScoreHistoryPoint,
   ShopLevelConfig,
   UpdateBulletinInput,
+  UpdateExportHomeBaseInput,
   UpdateHomeBaseInput,
   UpdateShopLevelConfigInput,
   Warehouse
@@ -84,6 +86,7 @@ interface DemoStore {
   demandEvents: DemandEvent[];
   warehouses: DemoWarehouse[];
   homeBase: HomeBase | null;
+  exportPlayers: ExportPlayerHome[];
   shopLevelConfig: ShopLevelConfig;
   lastSettledAt: string;
 }
@@ -339,17 +342,18 @@ export class DemoAdapter implements GameAdapter {
 
   async placeWarehouse(input: PlaceWarehouseInput): Promise<GameState> {
     const now = new Date();
-    const radiusM = input.tier === "large" ? 300 : input.tier === "medium" ? 200 : 100;
 
     if (this.store.profile.playerMode !== "export") {
       throw new Error("Only export players can build warehouses.");
     }
+    const exportHomeBase = this.exportHomeBaseForCurrentPlayer();
+    const radiusM = Math.max(0, Math.round(distanceMeters(exportHomeBase, input) * GAME_CONFIG.exportDistanceMultiplier));
     if (this.store.profile.pointsBalance < GAME_CONFIG.warehouseCost) {
       throw new Error("Not enough tokens.");
     }
     const overlappingWarehouse = this.store.warehouses.find((warehouse) =>
       doesWarehouseBlockPlacement(warehouse, now) &&
-      distanceMeters(warehouse, input) <= warehouse.radiusM + radiusM
+      distanceMeters(warehouse, input) <= GAME_CONFIG.warehouseFootprintM * 2
     );
     if (overlappingWarehouse) {
       throw new Error("Warehouse radius overlaps another warehouse.");
@@ -363,7 +367,7 @@ export class DemoAdapter implements GameAdapter {
         ownerName: "You",
         ownerColor: this.store.profile.playerColor,
         name: input.name.trim() || "Warehouse",
-        tier: input.tier,
+        tier: "distance",
         radiusM,
         lat: input.lat,
         lng: input.lng,
@@ -386,6 +390,7 @@ export class DemoAdapter implements GameAdapter {
     if (this.store.profile.playerMode !== "export") {
       throw new Error("Only export players can restock warehouses.");
     }
+    const exportHomeBase = this.exportHomeBaseForCurrentPlayer();
     if (warehouse.creditAvailable) throw new Error("Warehouse already has an export credit.");
     if (warehouse.availableAt && new Date(warehouse.availableAt).getTime() > Date.now()) {
       throw new Error("Warehouse is still cooling down.");
@@ -400,6 +405,7 @@ export class DemoAdapter implements GameAdapter {
     }
 
     this.store.profile.pointsBalance -= GAME_CONFIG.warehouseRestockCost;
+    warehouse.radiusM = Math.max(0, Math.round(distanceMeters(exportHomeBase, warehouse) * GAME_CONFIG.exportDistanceMultiplier));
     warehouse.creditAvailable = true;
     warehouse.status = "available";
     saveStore(this.store);
@@ -498,6 +504,20 @@ export class DemoAdapter implements GameAdapter {
     return this.state();
   }
 
+  async updateExportHomeBase(input: UpdateExportHomeBaseInput): Promise<GameState> {
+    if (!this.store.profile.isAdmin) throw new Error("Only admins can set export home bases.");
+    const player = this.store.exportPlayers.find((item) => item.playerId === input.playerId);
+    if (!player) throw new Error("Export player was not found.");
+
+    player.homeBase = {
+      lat: input.lat,
+      lng: input.lng,
+      updatedAt: new Date().toISOString()
+    };
+    saveStore(this.store);
+    return this.state();
+  }
+
   async restockPin(input: RestockPinInput): Promise<GameState> {
     this.settleIncome();
     const pin = this.store.pins.find((item) => item.id === input.pinId);
@@ -541,9 +561,16 @@ export class DemoAdapter implements GameAdapter {
       demandEvents: activeDemandEvents(this.store.demandEvents),
       warehouses: visibleDemoWarehouses(this.store.warehouses),
       homeBase: this.store.homeBase,
+      exportPlayers: this.store.exportPlayers,
       shopLevelConfig: this.store.shopLevelConfig,
       isDemoMode: true
     };
+  }
+
+  private exportHomeBaseForCurrentPlayer(): HomeBase {
+    const homeBase = this.store.exportPlayers.find((item) => item.playerId === this.store.profile.id)?.homeBase;
+    if (!homeBase) throw new Error("An admin needs to set your export home base first.");
+    return homeBase;
   }
 
   private settleIncome(): void {
@@ -651,6 +678,7 @@ function createInitialStore(): DemoStore {
       lng: -3.1883,
       updatedAt: now.toISOString()
     },
+    exportPlayers: [],
     shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
     lastSettledAt: now.toISOString()
   };
@@ -668,17 +696,19 @@ function normalizeStore(candidate: Partial<DemoStore>): DemoStore {
     return fallback;
   }
 
+  const normalizedProfile: PlayerProfile = {
+    id: profile.id,
+    displayName: profile.displayName || "You",
+    playerColor: normalizeColor(profile.playerColor, profile.id),
+    pointsBalance: Number.isFinite(profile.pointsBalance)
+      ? Number(profile.pointsBalance)
+      : GAME_CONFIG.startingPoints,
+    isAdmin: profile.isAdmin !== false,
+    playerMode: profile.playerMode === "export" ? "export" : "local"
+  };
+
   const store: DemoStore = {
-    profile: {
-      id: profile.id,
-      displayName: profile.displayName || "You",
-      playerColor: normalizeColor(profile.playerColor, profile.id),
-      pointsBalance: Number.isFinite(profile.pointsBalance)
-        ? Number(profile.pointsBalance)
-        : GAME_CONFIG.startingPoints,
-      isAdmin: profile.isAdmin !== false,
-      playerMode: profile.playerMode === "export" ? "export" : "local"
-    },
+    profile: normalizedProfile,
     pins: pins.map((pin, index) => normalizePin(pin ?? undefined, fallback.pins[index])),
     leaderboard: [],
     bulletins: normalizeBulletins(candidate.bulletins, fallback.bulletins),
@@ -687,6 +717,7 @@ function normalizeStore(candidate: Partial<DemoStore>): DemoStore {
       ? candidate.warehouses.map(normalizeWarehouse)
       : fallback.warehouses,
     homeBase: normalizeHomeBase(candidate.homeBase) ?? fallback.homeBase,
+    exportPlayers: normalizeExportPlayers(candidate.exportPlayers, normalizedProfile),
     shopLevelConfig: normalizeShopLevelConfig(candidate.shopLevelConfig),
     lastSettledAt: candidate.lastSettledAt || new Date().toISOString()
   };
@@ -744,9 +775,9 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
 }
 
 function normalizeWarehouse(candidate: Partial<DemoWarehouse>): DemoWarehouse {
-  const tier = candidate.tier === "large" || candidate.tier === "medium" ? candidate.tier : "small";
+  const tier = candidate.tier === "distance" || candidate.tier === "large" || candidate.tier === "medium" ? candidate.tier : "small";
   const radiusM = Number.isFinite(candidate.radiusM)
-    ? Math.max(1, Number(candidate.radiusM))
+    ? Math.max(0, Number(candidate.radiusM))
     : tier === "large"
       ? 300
       : tier === "medium"
@@ -801,6 +832,36 @@ function normalizeHomeBase(candidate: unknown): HomeBase | null {
     lat,
     lng,
     updatedAt: value.updatedAt ?? null
+  };
+}
+
+function normalizeExportPlayers(candidate: unknown, profile: PlayerProfile): ExportPlayerHome[] {
+  const players = Array.isArray(candidate)
+    ? candidate
+        .map((item) => normalizeExportPlayerHome(item as Partial<ExportPlayerHome>))
+        .filter((item): item is ExportPlayerHome => item !== null)
+    : [];
+
+  if (profile.playerMode === "export" && !players.some((item) => item.playerId === profile.id)) {
+    players.push({
+      playerId: profile.id,
+      displayName: profile.displayName,
+      playerColor: profile.playerColor,
+      homeBase: null
+    });
+  }
+
+  return players;
+}
+
+function normalizeExportPlayerHome(candidate: Partial<ExportPlayerHome>): ExportPlayerHome | null {
+  if (!candidate.playerId) return null;
+
+  return {
+    playerId: candidate.playerId,
+    displayName: candidate.displayName || "Export Player",
+    playerColor: normalizeColor(candidate.playerColor, candidate.playerId),
+    homeBase: normalizeHomeBase(candidate.homeBase)
   };
 }
 

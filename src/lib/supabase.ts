@@ -19,6 +19,7 @@ import type {
   DeleteWarehouseInput,
   DemandEvent,
   EndDemandEventInput,
+  ExportPlayerHome,
   ExportPlacePinInput,
   ExportRestockPinInput,
   GameAdapter,
@@ -34,6 +35,7 @@ import type {
   ScoreHistoryPoint,
   ShopLevelConfig,
   UpdateBulletinInput,
+  UpdateExportHomeBaseInput,
   UpdateHomeBaseInput,
   UpdateShopLevelConfigInput,
   Warehouse
@@ -122,6 +124,7 @@ class SupabaseGameAdapter implements GameAdapter {
         demandEvents: [],
         warehouses: [],
         homeBase: null,
+        exportPlayers: [],
         shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
         isDemoMode: false
       };
@@ -129,7 +132,7 @@ class SupabaseGameAdapter implements GameAdapter {
 
     await this.supabase.rpc("settle_player_income");
 
-    const [profile, pins, leaderboard, bulletins, demandEvents, warehouses, homeBase, shopLevelConfig] = await Promise.all([
+    const [profile, pins, leaderboard, bulletins, demandEvents, warehouses, homeBase, exportPlayers, shopLevelConfig] = await Promise.all([
       this.fetchProfile(user.id),
       this.fetchPins(),
       this.fetchLeaderboard(),
@@ -137,6 +140,7 @@ class SupabaseGameAdapter implements GameAdapter {
       this.fetchDemandEvents(),
       this.fetchWarehouses(),
       this.fetchHomeBase(),
+      this.fetchExportPlayers(),
       this.fetchShopLevelConfig()
     ]);
     const scoreHistory = await this.fetchScoreHistory(leaderboard);
@@ -150,6 +154,7 @@ class SupabaseGameAdapter implements GameAdapter {
       demandEvents,
       warehouses,
       homeBase,
+      exportPlayers,
       shopLevelConfig,
       isDemoMode: false
     };
@@ -300,7 +305,7 @@ class SupabaseGameAdapter implements GameAdapter {
       p_lat: input.lat,
       p_lng: input.lng,
       p_name: input.name,
-      p_tier: input.tier,
+      p_tier: "distance",
       p_accuracy_m: input.accuracy
     });
 
@@ -345,6 +350,17 @@ class SupabaseGameAdapter implements GameAdapter {
 
   async updateHomeBase(input: UpdateHomeBaseInput): Promise<GameState> {
     const { error } = await this.supabase.rpc("update_home_base", {
+      p_lat: input.lat,
+      p_lng: input.lng
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async updateExportHomeBase(input: UpdateExportHomeBaseInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("update_export_home_base", {
+      p_player_id: input.playerId,
       p_lat: input.lat,
       p_lng: input.lng
     });
@@ -493,6 +509,20 @@ class SupabaseGameAdapter implements GameAdapter {
     }
 
     return mapHomeBase(data);
+  }
+
+  private async fetchExportPlayers(): Promise<ExportPlayerHome[]> {
+    const { data, error } = await this.supabase.rpc("get_export_players");
+
+    if (error) {
+      const message = error.message ?? "";
+      if (error.code === "PGRST202" || message.includes("get_export_players")) {
+        return [];
+      }
+      throw error;
+    }
+
+    return (data ?? []).map(mapExportPlayerHomeRow);
   }
 
   private async fetchShopLevelConfig(): Promise<ShopLevelConfig> {
@@ -728,7 +758,7 @@ function mapWarehouseRow(row: Record<string, unknown>): Warehouse {
     ownerName: String(row.owner_name),
     ownerColor: safeColor(row.owner_color, String(row.owner_id)),
     name: String(row.name),
-    tier: row.tier === "medium" || row.tier === "large" ? row.tier : "small",
+    tier: row.tier === "distance" || row.tier === "medium" || row.tier === "large" ? row.tier : "small",
     radiusM: safeNumber(row.radius_m, 100),
     lat: Number(row.lat),
     lng: Number(row.lng),
@@ -737,6 +767,25 @@ function mapWarehouseRow(row: Record<string, unknown>): Warehouse {
     availableAt: row.available_at ? String(row.available_at) : null,
     creditAvailable: Boolean(row.credit_available),
     status: row.status === "cooldown" || row.status === "empty" ? row.status : "available"
+  };
+}
+
+function mapExportPlayerHomeRow(row: Record<string, unknown>): ExportPlayerHome {
+  const lat = Number(row.home_lat);
+  const lng = Number(row.home_lng);
+  const homeBase = Number.isFinite(lat) && Number.isFinite(lng)
+    ? {
+        lat,
+        lng,
+        updatedAt: row.home_updated_at ? String(row.home_updated_at) : null
+      }
+    : null;
+
+  return {
+    playerId: String(row.player_id),
+    displayName: String(row.display_name),
+    playerColor: safeColor(row.player_color, String(row.player_id)),
+    homeBase
   };
 }
 

@@ -30,12 +30,11 @@ import {
   DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
   EDINBURGH_CENTER,
   GAME_CONFIG,
-  WAREHOUSE_TIERS,
   pointsToTokenProgress,
   pointsToWholeTokens
 } from "./lib/constants";
 import { distanceMeters, requestCurrentLocation } from "./lib/geo";
-import type { Bulletin, DemandEvent, GamePin, GameState, HomeBase, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint, ShopLevelConfig, Warehouse, WarehouseTier } from "./types";
+import type { Bulletin, DemandEvent, ExportPlayerHome, GamePin, GameState, HomeBase, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint, ShopLevelConfig, Warehouse } from "./types";
 
 const DEFAULT_SHOP_LEVEL_CONFIG: ShopLevelConfig = {
   thresholdsPoints: DEFAULT_SHOP_LEVEL_THRESHOLDS_POINTS,
@@ -51,6 +50,7 @@ const EMPTY_STATE: GameState = {
   demandEvents: [],
   warehouses: [],
   homeBase: null,
+  exportPlayers: [],
   shopLevelConfig: DEFAULT_SHOP_LEVEL_CONFIG,
   isDemoMode: false
 };
@@ -79,7 +79,6 @@ interface PendingBuild {
 
 interface PendingWarehouseBuild {
   name: string;
-  tier: WarehouseTier;
   label: string;
   radiusM: number;
   costPoints: number;
@@ -161,17 +160,18 @@ export default function App() {
   const [selectedBuildType, setSelectedBuildType] = useState<PinType | null>(null);
   const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null);
   const [warehouseName, setWarehouseName] = useState("");
-  const [selectedWarehouseTier, setSelectedWarehouseTier] = useState<WarehouseTier | null>(null);
   const [pendingWarehouseBuild, setPendingWarehouseBuild] = useState<PendingWarehouseBuild | null>(null);
   const [pendingExportBuild, setPendingExportBuild] = useState<PendingExportBuild | null>(null);
   const [exportBuildWarehouseId, setExportBuildWarehouseId] = useState<string | null>(null);
   const [exportRestockPinId, setExportRestockPinId] = useState<string | null>(null);
   const [exportRestockWarehouseId, setExportRestockWarehouseId] = useState<string | null>(null);
+  const [selectedExportHomePlayerId, setSelectedExportHomePlayerId] = useState<string | null>(null);
   const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
   const [pendingRadiusUpgradePinId, setPendingRadiusUpgradePinId] = useState<string | null>(null);
   const [pendingBuildingDelete, setPendingBuildingDelete] = useState<PendingBuildingDelete | null>(null);
   const [isChoosingDemandEventCenter, setIsChoosingDemandEventCenter] = useState(false);
   const [isChoosingHomeBase, setIsChoosingHomeBase] = useState(false);
+  const [isChoosingExportHomeBase, setIsChoosingExportHomeBase] = useState(false);
   const [isChoosingExportTarget, setIsChoosingExportTarget] = useState(false);
   const [pendingDemandEventCenter, setPendingDemandEventCenter] = useState<EventCenter | null>(null);
   const [eventDurationHours, setEventDurationHours] = useState("2");
@@ -213,8 +213,9 @@ export default function App() {
   const ownPins = game.pins.filter((pin) => pin.ownerId === game.profile?.id);
   const ownWarehouses = game.warehouses.filter((warehouse) => warehouse.ownerId === game.profile?.id);
   const isExportPlayer = game.profile?.playerMode === "export";
+  const ownExportPlayerHome = game.exportPlayers.find((player) => player.playerId === game.profile?.id)?.homeBase ?? null;
+  const selectedExportHomePlayer = game.exportPlayers.find((player) => player.playerId === selectedExportHomePlayerId) ?? null;
   const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
-  const selectedWarehouseOption = WAREHOUSE_TIERS.find((option) => option.tier === selectedWarehouseTier) ?? null;
   const activeDemandEvents = game.demandEvents.filter((event) => isDemandEventActive(event, nowMs));
   const shopLevelConfig = useMemo(
     () => normalizeShopLevelConfig(game.shopLevelConfig),
@@ -358,11 +359,12 @@ export default function App() {
 
   const previewWarehouseBuild = () =>
     run(async () => {
-      if (!selectedWarehouseOption) {
-        throw new Error("Choose a warehouse tier first.");
+      if (!ownExportPlayerHome) {
+        throw new Error("An admin needs to set your export home base first.");
       }
 
       const location = await getPlacementLocation(game.isDemoMode, playerLocation);
+      const radiusM = calculateExportReachMeters(ownExportPlayerHome, location);
       setPlayerLocation(location);
       setFocusLocation({
         lat: location.lat,
@@ -370,10 +372,9 @@ export default function App() {
         requestId: Date.now()
       });
       setPendingWarehouseBuild({
-        name: warehouseName.trim() || selectedWarehouseOption.label,
-        tier: selectedWarehouseOption.tier,
-        label: selectedWarehouseOption.label,
-        radiusM: selectedWarehouseOption.radiusM,
+        name: warehouseName.trim() || "Warehouse",
+        label: "Warehouse",
+        radiusM,
         costPoints: GAME_CONFIG.warehouseCost,
         location
       });
@@ -412,8 +413,7 @@ export default function App() {
         lat: pendingWarehouseBuild.location.lat,
         lng: pendingWarehouseBuild.location.lng,
         accuracy: pendingWarehouseBuild.location.accuracy,
-        name: pendingWarehouseBuild.name,
-        tier: pendingWarehouseBuild.tier
+        name: pendingWarehouseBuild.name
       });
       const nextWarehouse = next.warehouses.find((warehouse) =>
         warehouse.ownerId === next.profile?.id &&
@@ -422,7 +422,6 @@ export default function App() {
 
       setWarehouseName("");
       setPendingWarehouseBuild(null);
-      setSelectedWarehouseTier(null);
       setExportBuildWarehouseId(nextWarehouse?.id ?? null);
       setSelectedBuildType(null);
       setShopName("");
@@ -457,7 +456,7 @@ export default function App() {
     if (!exportBuildWarehouse) return;
 
     if (!game.homeBase) {
-      setNotice({ message: "Home base has not been set yet.", tone: "error" });
+      setNotice({ message: "Game home base has not been set yet.", tone: "error" });
       return;
     }
 
@@ -591,6 +590,8 @@ export default function App() {
     setSelectedPinId(null);
     setActivePanel(null);
     setIsChoosingHomeBase(true);
+    setIsChoosingExportHomeBase(false);
+    setSelectedExportHomePlayerId(null);
     setNotice(null);
 
     const homeBase = game.homeBase;
@@ -603,6 +604,29 @@ export default function App() {
     }
   };
 
+  const startExportHomeBaseSelection = (playerId: string) => {
+    const player = game.exportPlayers.find((item) => item.playerId === playerId);
+    if (!player) {
+      setNotice({ message: "Export player was not found.", tone: "error" });
+      return;
+    }
+
+    setSelectedPinId(null);
+    setActivePanel(null);
+    setSelectedExportHomePlayerId(playerId);
+    setIsChoosingExportHomeBase(true);
+    setIsChoosingHomeBase(false);
+    setNotice(null);
+
+    if (player.homeBase) {
+      setFocusLocation({
+        lat: player.homeBase.lat,
+        lng: player.homeBase.lng,
+        requestId: Date.now()
+      });
+    }
+  };
+
   const cancelDemandEventCenterSelection = () => {
     setIsChoosingDemandEventCenter(false);
     setPendingDemandEventCenter(null);
@@ -610,6 +634,11 @@ export default function App() {
 
   const cancelHomeBaseSelection = () => {
     setIsChoosingHomeBase(false);
+  };
+
+  const cancelExportHomeBaseSelection = () => {
+    setIsChoosingExportHomeBase(false);
+    setSelectedExportHomePlayerId(null);
   };
 
   const confirmDemandEventCenter = () => {
@@ -628,6 +657,22 @@ export default function App() {
       setActivePanel("admin");
       return next;
     }, "Home base updated");
+  };
+
+  const confirmExportHomeBase = () => {
+    if (!selectedExportHomePlayer) return;
+
+    void run(async () => {
+      const next = await adapter.updateExportHomeBase({
+        playerId: selectedExportHomePlayer.playerId,
+        lat: mapCenter.lat,
+        lng: mapCenter.lng
+      });
+      setIsChoosingExportHomeBase(false);
+      setSelectedExportHomePlayerId(null);
+      setActivePanel("admin");
+      return next;
+    }, "Export home updated");
   };
 
   const cancelDemandEventSetup = () => {
@@ -883,7 +928,7 @@ export default function App() {
         exportTargetRadiusM={isChoosingExportTarget ? exportBuildWarehouse?.radiusM ?? null : null}
         nowMs={nowMs}
         isDemoMode={game.isDemoMode}
-        isChoosingMapTarget={isChoosingDemandEventCenter || isChoosingHomeBase || isChoosingExportTarget}
+        isChoosingMapTarget={isChoosingDemandEventCenter || isChoosingHomeBase || isChoosingExportHomeBase || isChoosingExportTarget}
         onSelectPin={(pin) => {
           setSelectedPinId(pin.id);
         }}
@@ -924,14 +969,14 @@ export default function App() {
         </div>
       </header>
 
-      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !pendingDeleteBulletin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
+      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !pendingDeleteBulletin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportHomeBase && !isChoosingExportTarget ? (
         <button className="admin-map-button" type="button" onClick={() => setActivePanel("admin")}>
           <ShieldCheck size={16} />
           Admin
         </button>
       ) : null}
 
-      {selectedPin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportTarget ? (
+      {selectedPin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportHomeBase && !isChoosingExportTarget ? (
         <section className="map-selection-card" aria-label="Selected shop">
           {selectedOwnPin ? (
             <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
@@ -982,6 +1027,14 @@ export default function App() {
           isBusy={isBusy}
           onConfirm={confirmHomeBase}
           onCancel={cancelHomeBaseSelection}
+        />
+      ) : isChoosingExportHomeBase && selectedExportHomePlayer ? (
+        <ExportHomeBaseConfirmBar
+          player={selectedExportHomePlayer}
+          center={mapCenter}
+          isBusy={isBusy}
+          onConfirm={confirmExportHomeBase}
+          onCancel={cancelExportHomeBaseSelection}
         />
       ) : isChoosingExportTarget && pendingExportBuild ? (
         <ExportTargetConfirmBar
@@ -1053,9 +1106,8 @@ export default function App() {
                 <ExportBuildPanel
                   warehouses={ownWarehouses}
                   homeBase={game.homeBase}
+                  exportHomeBase={ownExportPlayerHome}
                   selectedWarehouse={exportBuildWarehouse}
-                  warehouseTiers={WAREHOUSE_TIERS}
-                  selectedWarehouseTier={selectedWarehouseTier}
                   selectedBuildType={selectedBuildType}
                   selectedShopType={selectedShopType}
                   warehouseName={warehouseName}
@@ -1065,7 +1117,6 @@ export default function App() {
                   isDemoMode={game.isDemoMode}
                   hasPlayerLocation={Boolean(playerLocation)}
                   nowMs={nowMs}
-                  onSelectWarehouseTier={setSelectedWarehouseTier}
                   onWarehouseNameChange={setWarehouseName}
                   onPreviewWarehouseBuild={previewWarehouseBuild}
                   onStartExportBuild={startExportBuild}
@@ -1124,11 +1175,13 @@ export default function App() {
               <AdminPanel
                 demandEvents={activeDemandEvents}
                 homeBase={game.homeBase}
+                exportPlayers={game.exportPlayers}
                 nowMs={nowMs}
                 isBusy={isBusy}
                 onCreateBulletin={startCreateBulletin}
                 onBeginEvent={startDemandEventCenterSelection}
                 onSetHomeBase={startHomeBaseSelection}
+                onSetExportHomeBase={startExportHomeBaseSelection}
                 onEditShopLevels={startShopLevelEditor}
                 onEndEvent={endDemandEvent}
               />
@@ -1335,9 +1388,8 @@ function BuildPanel({
 function ExportBuildPanel({
   warehouses,
   homeBase,
+  exportHomeBase,
   selectedWarehouse,
-  warehouseTiers,
-  selectedWarehouseTier,
   selectedBuildType,
   selectedShopType,
   warehouseName,
@@ -1347,7 +1399,6 @@ function ExportBuildPanel({
   isDemoMode,
   hasPlayerLocation,
   nowMs,
-  onSelectWarehouseTier,
   onWarehouseNameChange,
   onPreviewWarehouseBuild,
   onStartExportBuild,
@@ -1360,9 +1411,8 @@ function ExportBuildPanel({
 }: {
   warehouses: Warehouse[];
   homeBase: HomeBase | null;
+  exportHomeBase: HomeBase | null;
   selectedWarehouse: Warehouse | null;
-  warehouseTiers: typeof WAREHOUSE_TIERS;
-  selectedWarehouseTier: WarehouseTier | null;
   selectedBuildType: PinType | null;
   selectedShopType: ShopTypeOption | null;
   warehouseName: string;
@@ -1372,7 +1422,6 @@ function ExportBuildPanel({
   isDemoMode: boolean;
   hasPlayerLocation: boolean;
   nowMs: number;
-  onSelectWarehouseTier: (tier: WarehouseTier | null) => void;
   onWarehouseNameChange: (value: string) => void;
   onPreviewWarehouseBuild: () => void;
   onStartExportBuild: (warehouseId: string) => void;
@@ -1383,8 +1432,6 @@ function ExportBuildPanel({
   onCancelExportBuild: () => void;
   onRequestDeleteWarehouse: (warehouseId: string) => void;
 }) {
-  const selectedWarehouseOption = warehouseTiers.find((option) => option.tier === selectedWarehouseTier) ?? null;
-
   if (selectedWarehouse) {
     const canUseWarehouse = isWarehouseCreditAvailable(selectedWarehouse);
 
@@ -1401,7 +1448,7 @@ function ExportBuildPanel({
           <b>{formatTokenAmount(GAME_CONFIG.exportShopCost)}</b>
         </div>
         {!homeBase ? (
-          <p className="muted">An admin needs to set the home base before export shops can be built.</p>
+          <p className="muted">An admin needs to set the game home base before export shops can be built.</p>
         ) : null}
         {!canUseWarehouse ? (
           <p className="muted">This warehouse needs to be restocked before it can power another export transaction.</p>
@@ -1447,7 +1494,7 @@ function ExportBuildPanel({
               <strong>{formatTokenAmount(GAME_CONFIG.exportShopCost)}</strong>
             </div>
             <div className="metric-row">
-              <span>Home base</span>
+              <span>Game home base</span>
               <strong>{homeBase ? formatCoordinatePair(homeBase) : "Not set"}</strong>
             </div>
             <button
@@ -1510,60 +1557,42 @@ function ExportBuildPanel({
         <div className="panel-subtitle">
           <h3>Build Warehouse</h3>
         </div>
-        {!selectedWarehouseOption ? (
-          <div className="shop-type-list">
-            {warehouseTiers.map((option) => (
-              <button
-                className="shop-type-button"
-                type="button"
-                key={option.tier}
-                onClick={() => onSelectWarehouseTier(option.tier)}
-                disabled={isBusy || pointsBalance < GAME_CONFIG.warehouseCost}
-              >
-                <span>
-                  <strong>{option.label}</strong>
-                  <small>{option.blurb}</small>
-                </span>
-                <b>{formatTokenAmount(GAME_CONFIG.warehouseCost)}</b>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <>
-            <button className="text-action" type="button" onClick={() => onSelectWarehouseTier(null)}>
-              Change tier
-            </button>
-            <div className="selected-build-type">
-              <span>
-                <strong>{selectedWarehouseOption.label}</strong>
-                <small>{selectedWarehouseOption.blurb}</small>
-              </span>
-              <b>{formatTokenAmount(GAME_CONFIG.warehouseCost)}</b>
-            </div>
-            <label className="field">
-              <span>Warehouse name</span>
-              <input
-                value={warehouseName}
-                placeholder={selectedWarehouseOption.label}
-                onChange={(event) => onWarehouseNameChange(event.target.value)}
-                maxLength={42}
-              />
-            </label>
-            <div className="metric-row">
-              <span>Location</span>
-              <strong>{isDemoMode ? "Simulated" : hasPlayerLocation ? "GPS ready" : "GPS on preview"}</strong>
-            </div>
-            <button
-              className="primary-action"
-              type="button"
-              onClick={onPreviewWarehouseBuild}
-              disabled={isBusy || pointsBalance < GAME_CONFIG.warehouseCost}
-            >
-              <WarehouseIcon size={20} />
-              Preview Warehouse
-            </button>
-          </>
-        )}
+        <div className="selected-build-type">
+          <span>
+            <strong>Warehouse</strong>
+            <small>Reach is based on distance from your export home.</small>
+          </span>
+          <b>{formatTokenAmount(GAME_CONFIG.warehouseCost)}</b>
+        </div>
+        {!exportHomeBase ? (
+          <p className="muted">An admin needs to set your export home base before you can build warehouses.</p>
+        ) : null}
+        <label className="field">
+          <span>Warehouse name</span>
+          <input
+            value={warehouseName}
+            placeholder="Warehouse"
+            onChange={(event) => onWarehouseNameChange(event.target.value)}
+            maxLength={42}
+          />
+        </label>
+        <div className="metric-row">
+          <span>Export home</span>
+          <strong>{exportHomeBase ? formatCoordinatePair(exportHomeBase) : "Not set"}</strong>
+        </div>
+        <div className="metric-row">
+          <span>Location</span>
+          <strong>{isDemoMode ? "Simulated" : hasPlayerLocation ? "GPS ready" : "GPS on preview"}</strong>
+        </div>
+        <button
+          className="primary-action"
+          type="button"
+          onClick={onPreviewWarehouseBuild}
+          disabled={isBusy || !exportHomeBase || pointsBalance < GAME_CONFIG.warehouseCost}
+        >
+          <WarehouseIcon size={20} />
+          Preview Warehouse
+        </button>
       </section>
     </div>
   );
@@ -1645,8 +1674,41 @@ function HomeBaseConfirmBar({
   return (
     <section className="build-confirm-bar event-confirm-bar">
       <div>
-        <span>Home base</span>
+        <span>Game home base</span>
         <strong>Confirm map center</strong>
+        <small>{formatCoordinatePair(center)}</small>
+      </div>
+      <div className="build-confirm-actions">
+        <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+          Cancel
+        </button>
+        <button className="primary-action" type="button" onClick={onConfirm} disabled={isBusy}>
+          <MapPin size={18} />
+          Confirm
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ExportHomeBaseConfirmBar({
+  player,
+  center,
+  isBusy,
+  onConfirm,
+  onCancel
+}: {
+  player: ExportPlayerHome;
+  center: EventCenter;
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="build-confirm-bar event-confirm-bar">
+      <div>
+        <span>{player.displayName}</span>
+        <strong>Confirm export home</strong>
         <small>{formatCoordinatePair(center)}</small>
       </div>
       <div className="build-confirm-actions">
@@ -1910,21 +1972,25 @@ function MessagesPanel({
 function AdminPanel({
   demandEvents,
   homeBase,
+  exportPlayers,
   nowMs,
   isBusy,
   onCreateBulletin,
   onBeginEvent,
   onSetHomeBase,
+  onSetExportHomeBase,
   onEditShopLevels,
   onEndEvent
 }: {
   demandEvents: DemandEvent[];
   homeBase: HomeBase | null;
+  exportPlayers: ExportPlayerHome[];
   nowMs: number;
   isBusy: boolean;
   onCreateBulletin: () => void;
   onBeginEvent: () => void;
   onSetHomeBase: () => void;
+  onSetExportHomeBase: (playerId: string) => void;
   onEditShopLevels: () => void;
   onEndEvent: (eventId: string) => void;
 }) {
@@ -1946,11 +2012,32 @@ function AdminPanel({
       </button>
       <button className="shop-type-button" type="button" onClick={onSetHomeBase}>
         <span>
-          <strong>Home Base</strong>
+          <strong>Game Home Base</strong>
           <small>{homeBase ? `Currently ${formatCoordinatePair(homeBase)}` : "Set the center point for export shops."}</small>
         </span>
         <MapPin size={20} />
       </button>
+      <section className="admin-event-list" aria-label="Export player homes">
+        <div className="panel-subtitle">
+          <h3>Export Homes</h3>
+        </div>
+        {exportPlayers.length === 0 ? (
+          <p className="muted">No export players yet.</p>
+        ) : (
+          exportPlayers.map((player) => (
+            <button className="shop-type-button" type="button" key={player.playerId} onClick={() => onSetExportHomeBase(player.playerId)}>
+              <span>
+                <strong>
+                  <ColorDot color={player.playerColor} />
+                  {player.displayName}
+                </strong>
+                <small>{player.homeBase ? `Home ${formatCoordinatePair(player.homeBase)}` : "Set this player's export home base."}</small>
+              </span>
+              <MapPin size={20} />
+            </button>
+          ))
+        )}
+      </section>
       <button className="shop-type-button" type="button" onClick={onEditShopLevels}>
         <span>
           <strong>Shop Levels</strong>
@@ -2649,6 +2736,11 @@ function formatWarehouseStatus(warehouse: Warehouse, nowMs: number): string {
 
   const hours = Math.ceil((availableAt - nowMs) / 3_600_000);
   return hours > 24 ? `${Math.ceil(hours / 24)}d cooldown` : `${hours}h cooldown`;
+}
+
+function calculateExportReachMeters(exportHomeBase: HomeBase, location: LocationReading): number {
+  const distanceFromHome = distanceMeters(exportHomeBase, location);
+  return Math.max(0, Math.round(distanceFromHome * GAME_CONFIG.exportDistanceMultiplier));
 }
 
 function normalizeShopLevelConfig(config: ShopLevelConfig | null | undefined): ShopLevelConfig {
