@@ -51,6 +51,11 @@ interface ProjectedMarkerEntry extends MarkerEntry {
   point: { x: number; y: number };
 }
 
+interface ExportTargetConstraint {
+  center: { lat: number; lng: number };
+  radiusM: number;
+}
+
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 const EARTH_RADIUS_M = 6_371_000;
 const SHINGLE_DISTANCE_PX = 34;
@@ -105,6 +110,9 @@ export function GameMap({
   const warehousePreviewMarkerRef = useRef<Marker | null>(null);
   const homeBaseMarkerRef = useRef<Marker | null>(null);
   const demandEventLabelMarkersRef = useRef<Marker[]>([]);
+  const exportTargetConstraintRef = useRef<ExportTargetConstraint | null>(null);
+  const isClampingCenterRef = useRef(false);
+  const onMapCenterChangeRef = useRef(onMapCenterChange);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
   const selectedPin = useMemo(
     () => visiblePins.find((pin) => pin.id === selectedPinId) ?? null,
@@ -126,6 +134,26 @@ export function GameMap({
   }, [selectedPin, visiblePins]);
 
   useEffect(() => {
+    onMapCenterChangeRef.current = onMapCenterChange;
+  }, [onMapCenterChange]);
+
+  useEffect(() => {
+    exportTargetConstraintRef.current =
+      homeBase && hasValidCoordinate(homeBase) && exportTargetRadiusM !== null
+        ? {
+            center: { lat: homeBase.lat, lng: homeBase.lng },
+            radiusM: Math.max(0, exportTargetRadiusM)
+          }
+        : null;
+
+    const map = mapRef.current;
+    const constraint = exportTargetConstraintRef.current;
+    if (!map || !constraint) return;
+
+    clampMapCenterToExportTarget(map, constraint, onMapCenterChangeRef.current, isClampingCenterRef);
+  }, [exportTargetRadiusM, homeBase]);
+
+  useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     const map = new maplibregl.Map({
@@ -139,10 +167,23 @@ export function GameMap({
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
-    map.on("moveend", () => {
+    const syncMapCenter = (shouldNotifyWithoutConstraint: boolean) => {
+      const constraint = exportTargetConstraintRef.current;
+      if (constraint) {
+        clampMapCenterToExportTarget(map, constraint, onMapCenterChangeRef.current, isClampingCenterRef);
+        return;
+      }
+
+      if (!shouldNotifyWithoutConstraint) return;
+
       const center = map.getCenter();
-      onMapCenterChange({ lat: center.lat, lng: center.lng });
-    });
+      onMapCenterChangeRef.current({ lat: center.lat, lng: center.lng });
+    };
+    const handleMove = () => syncMapCenter(false);
+    const handleMoveEnd = () => syncMapCenter(true);
+
+    map.on("move", handleMove);
+    map.on("moveend", handleMoveEnd);
 
     mapRef.current = map;
 
@@ -161,10 +202,12 @@ export function GameMap({
       homeBaseMarkerRef.current = null;
       demandEventLabelMarkersRef.current.forEach((marker) => marker.remove());
       demandEventLabelMarkersRef.current = [];
+      map.off("move", handleMove);
+      map.off("moveend", handleMoveEnd);
       map.remove();
       mapRef.current = null;
     };
-  }, [onMapCenterChange]);
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -930,6 +973,87 @@ function createRadiusCoordinates(
   }
 
   return coordinates;
+}
+
+function clampMapCenterToExportTarget(
+  map: Map,
+  constraint: ExportTargetConstraint,
+  onCenterChange: (center: { lat: number; lng: number }) => void,
+  isClampingCenterRef: { current: boolean }
+): void {
+  if (isClampingCenterRef.current) return;
+
+  const center = map.getCenter();
+  const currentCenter = { lat: center.lat, lng: center.lng };
+  const clampedCenter = clampCoordinateToRadius(currentCenter, constraint.center, constraint.radiusM);
+  const nextCenter = clampedCenter ?? currentCenter;
+
+  if (clampedCenter) {
+    isClampingCenterRef.current = true;
+    map.jumpTo({ center: [clampedCenter.lng, clampedCenter.lat] });
+    isClampingCenterRef.current = false;
+  }
+
+  onCenterChange(nextCenter);
+}
+
+function clampCoordinateToRadius(
+  point: { lat: number; lng: number },
+  center: { lat: number; lng: number },
+  radiusM: number
+): { lat: number; lng: number } | null {
+  const distanceM = distanceMeters(center, point);
+  const safeRadiusM = Math.max(0, radiusM);
+
+  if (!Number.isFinite(distanceM)) return null;
+  if (distanceM <= safeRadiusM + 0.25) return null;
+  if (safeRadiusM === 0) return center;
+
+  return destinationCoordinate(center, bearingRadians(center, point), safeRadiusM);
+}
+
+function destinationCoordinate(
+  center: { lat: number; lng: number },
+  bearing: number,
+  distanceM: number
+): { lat: number; lng: number } {
+  const lat = toRadians(center.lat);
+  const lng = toRadians(center.lng);
+  const angularDistance = distanceM / EARTH_RADIUS_M;
+  const destinationLat = Math.asin(
+    Math.sin(lat) * Math.cos(angularDistance) +
+      Math.cos(lat) * Math.sin(angularDistance) * Math.cos(bearing)
+  );
+  const destinationLng =
+    lng +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat),
+      Math.cos(angularDistance) - Math.sin(lat) * Math.sin(destinationLat)
+    );
+
+  return {
+    lat: toDegrees(destinationLat),
+    lng: toDegrees(normalizeLongitudeRadians(destinationLng))
+  };
+}
+
+function bearingRadians(
+  start: { lat: number; lng: number },
+  end: { lat: number; lng: number }
+): number {
+  const startLat = toRadians(start.lat);
+  const endLat = toRadians(end.lat);
+  const deltaLng = toRadians(end.lng - start.lng);
+  const y = Math.sin(deltaLng) * Math.cos(endLat);
+  const x =
+    Math.cos(startLat) * Math.sin(endLat) -
+    Math.sin(startLat) * Math.cos(endLat) * Math.cos(deltaLng);
+
+  return Math.atan2(y, x);
+}
+
+function normalizeLongitudeRadians(value: number): number {
+  return ((((value + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
 }
 
 function getIncomePulseDurationMs(hourlyRate: number): number {
