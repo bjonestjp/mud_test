@@ -30,6 +30,7 @@ import type {
   PlacePinInput,
   PlaceWarehouseInput,
   PlayerProfile,
+  RenamePinInput,
   RestockPinInput,
   RestockWarehouseInput,
   ScoreHistoryPoint,
@@ -187,6 +188,25 @@ export class DemoAdapter implements GameAdapter {
     this.store.profile.pointsBalance -= GAME_CONFIG.radiusUpgradeCost;
     pin.radiusLevel += 1;
     this.recalculatePins();
+    saveStore(this.store);
+    return this.state();
+  }
+
+  async renamePin(input: RenamePinInput): Promise<GameState> {
+    this.settleIncome();
+    const pin = this.store.pins.find((item) => item.id === input.pinId);
+    const nextName = input.name.trim();
+
+    if (!pin) throw new Error("Shop was not found.");
+    if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("You can only rename your own shops.");
+    if (!nextName) throw new Error("Add a shop name.");
+    if (pin.name === nextName) throw new Error("Choose a new shop name.");
+    if (this.store.profile.pointsBalance < GAME_CONFIG.renameCost) {
+      throw new Error("Not enough tokens.");
+    }
+
+    this.store.profile.pointsBalance -= GAME_CONFIG.renameCost;
+    pin.name = nextName.slice(0, 80);
     saveStore(this.store);
     return this.state();
   }

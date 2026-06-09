@@ -156,6 +156,11 @@ export interface UpgradeRadiusInput {
   pinId: string;
 }
 
+export interface RenamePinInput {
+  pinId: string;
+  name: string;
+}
+
 export interface CreateBulletinInput {
   title: string;
   body: string;
@@ -243,6 +248,7 @@ export interface GameAdapter {
   placePin(input: PlacePinInput): Promise<GameState>;
   restockPin(input: RestockPinInput): Promise<GameState>;
   upgradePinRadius(input: UpgradeRadiusInput): Promise<GameState>;
+  renamePin(input: RenamePinInput): Promise<GameState>;
   createBulletin(input: CreateBulletinInput): Promise<GameState>;
   updateBulletin(input: UpdateBulletinInput): Promise<GameState>;
   deleteBulletin(input: DeleteBulletinInput): Promise<GameState>;

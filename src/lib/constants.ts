@@ -12,6 +12,7 @@ export const GAME_CONFIG = {
   exportDistanceMultiplier: 0.6,
   warehouseFootprintM: 50,
   restockCost: 25,
+  renameCost: 25,
   restockRadiusM: 50,
   competitionRadiusM: 150,
   radiusUpgradeCost: 300,

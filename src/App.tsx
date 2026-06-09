@@ -9,6 +9,7 @@ import {
   MapPin,
   MessageSquare,
   PackageCheck,
+  Pencil,
   Plus,
   RefreshCcw,
   Send,
@@ -55,7 +56,7 @@ const EMPTY_STATE: GameState = {
   isDemoMode: false
 };
 
-type ActivePanel = "build" | "shops" | "leaderboard" | "messages" | "admin" | "bulletin" | "event" | "levels" | null;
+type ActivePanel = "build" | "shops" | "leaderboard" | "bulletins" | "admin" | "bulletin" | "event" | "levels" | null;
 
 interface Notice {
   message: string;
@@ -168,6 +169,8 @@ export default function App() {
   const [selectedExportHomePlayerId, setSelectedExportHomePlayerId] = useState<string | null>(null);
   const [pendingRestockPinId, setPendingRestockPinId] = useState<string | null>(null);
   const [pendingRadiusUpgradePinId, setPendingRadiusUpgradePinId] = useState<string | null>(null);
+  const [pendingRenamePinId, setPendingRenamePinId] = useState<string | null>(null);
+  const [renamePinName, setRenamePinName] = useState("");
   const [pendingBuildingDelete, setPendingBuildingDelete] = useState<PendingBuildingDelete | null>(null);
   const [isChoosingDemandEventCenter, setIsChoosingDemandEventCenter] = useState(false);
   const [isChoosingHomeBase, setIsChoosingHomeBase] = useState(false);
@@ -199,6 +202,7 @@ export default function App() {
   const selectedOwnPin = selectedPin?.ownerId === game.profile?.id ? selectedPin : null;
   const pendingRestockPin = game.pins.find((pin) => pin.id === pendingRestockPinId) ?? null;
   const pendingRadiusUpgradePin = game.pins.find((pin) => pin.id === pendingRadiusUpgradePinId) ?? null;
+  const pendingRenamePin = game.pins.find((pin) => pin.id === pendingRenamePinId) ?? null;
   const pendingExportRestockPin = game.pins.find((pin) => pin.id === exportRestockPinId) ?? null;
   const exportBuildWarehouse = game.warehouses.find((warehouse) => warehouse.id === exportBuildWarehouseId) ?? null;
   const exportRestockWarehouse = game.warehouses.find((warehouse) => warehouse.id === exportRestockWarehouseId) ?? null;
@@ -523,6 +527,12 @@ export default function App() {
     setPendingRadiusUpgradePinId(pinId);
   };
 
+  const requestRenamePin = (pinId: string) => {
+    const pin = game.pins.find((item) => item.id === pinId);
+    setRenamePinName(pin?.name ?? "");
+    setPendingRenamePinId(pinId);
+  };
+
   const requestDeletePin = (pinId: string) => {
     setPendingBuildingDelete({ kind: "pin", id: pinId });
   };
@@ -560,6 +570,11 @@ export default function App() {
 
   const cancelRadiusUpgrade = () => {
     setPendingRadiusUpgradePinId(null);
+  };
+
+  const cancelRenamePin = () => {
+    setPendingRenamePinId(null);
+    setRenamePinName("");
   };
 
   const cancelDeleteBuilding = () => {
@@ -811,9 +826,23 @@ export default function App() {
           });
 
       clearBulletinForm();
-      setActivePanel("messages");
+      setActivePanel("bulletins");
       return next;
     }, editingBulletin ? "Bulletin updated" : "Bulletin sent");
+  };
+
+  const confirmRenamePin = () => {
+    if (!pendingRenamePin) return;
+    const pinId = pendingRenamePin.id;
+    const name = renamePinName.trim();
+
+    void run(async () => {
+      const next = await adapter.renamePin({ pinId, name });
+      setPendingRenamePinId(null);
+      setRenamePinName("");
+      setSelectedPinId(pinId);
+      return next;
+    }, "Shop renamed");
   };
 
   const confirmDeleteBulletin = () => {
@@ -969,14 +998,14 @@ export default function App() {
         </div>
       </header>
 
-      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !pendingDeleteBulletin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportHomeBase && !isChoosingExportTarget ? (
+      {game.profile?.isAdmin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingRenamePin && !pendingBuildingDelete && !pendingDeleteBulletin && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportHomeBase && !isChoosingExportTarget ? (
         <button className="admin-map-button" type="button" onClick={() => setActivePanel("admin")}>
           <ShieldCheck size={16} />
           Admin
         </button>
       ) : null}
 
-      {selectedPin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingBuildingDelete && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportHomeBase && !isChoosingExportTarget ? (
+      {selectedPin && !activePanel && !pendingBuild && !pendingWarehouseBuild && !pendingExportBuild && !pendingRestockPin && !pendingRadiusUpgradePin && !pendingRenamePin && !pendingBuildingDelete && !isChoosingDemandEventCenter && !isChoosingHomeBase && !isChoosingExportHomeBase && !isChoosingExportTarget ? (
         <section className="map-selection-card" aria-label="Selected shop">
           {selectedOwnPin ? (
             <button className="selected-shop-button" type="button" onClick={openSelectedShop}>
@@ -1073,12 +1102,12 @@ export default function App() {
             <span>Scores</span>
           </button>
           <button
-            className={activePanel === "messages" ? "bottom-action bottom-action--active" : "bottom-action"}
+            className={activePanel === "bulletins" ? "bottom-action bottom-action--active" : "bottom-action"}
             type="button"
-            onClick={() => setActivePanel("messages")}
+            onClick={() => setActivePanel("bulletins")}
           >
             <MessageSquare size={20} />
-            <span>Messages</span>
+            <span>Bulletins</span>
           </button>
         </nav>
       )}
@@ -1090,7 +1119,7 @@ export default function App() {
               {activePanel === "build" ? <MapPin size={20} /> : null}
               {activePanel === "shops" ? <Users size={20} /> : null}
               {activePanel === "leaderboard" ? <Trophy size={20} /> : null}
-              {activePanel === "messages" ? <MessageSquare size={20} /> : null}
+              {activePanel === "bulletins" ? <MessageSquare size={20} /> : null}
               {activePanel === "admin" || activePanel === "bulletin" || activePanel === "levels" ? <ShieldCheck size={20} /> : null}
               {activePanel === "event" ? <Zap size={20} /> : null}
               <h2>{getPanelTitle(activePanel)}</h2>
@@ -1153,6 +1182,7 @@ export default function App() {
                 onSelectPin={setSelectedPinId}
                 onRequestRestock={requestRestock}
                 onRequestRadiusUpgrade={requestRadiusUpgrade}
+                onRequestRename={requestRenamePin}
                 onRequestDelete={requestDeletePin}
               />
             ) : null}
@@ -1161,8 +1191,8 @@ export default function App() {
               <ScoresPanel leaderboard={game.leaderboard} scoreHistory={game.scoreHistory} />
             ) : null}
 
-            {activePanel === "messages" ? (
-              <MessagesPanel
+            {activePanel === "bulletins" ? (
+              <BulletinsPanel
                 bulletins={game.bulletins}
                 isAdmin={Boolean(game.profile?.isAdmin)}
                 isBusy={isBusy}
@@ -1198,7 +1228,7 @@ export default function App() {
                 onTitleChange={setBulletinTitle}
                 onBodyChange={setBulletinBody}
                 onImageChange={setBulletinImageFile}
-                onBack={() => setActivePanel(editingBulletin ? "messages" : "admin")}
+                onBack={() => setActivePanel(editingBulletin ? "bulletins" : "admin")}
                 onSubmit={submitBulletin}
               />
             ) : null}
@@ -1268,6 +1298,19 @@ export default function App() {
           isBusy={isBusy}
           onConfirm={confirmRadiusUpgrade}
           onCancel={cancelRadiusUpgrade}
+        />
+      ) : null}
+
+      {pendingRenamePin ? (
+        <RenamePinConfirmPanel
+          pin={pendingRenamePin}
+          shopLevelConfig={shopLevelConfig}
+          name={renamePinName}
+          pointsBalance={game.profile?.pointsBalance ?? 0}
+          isBusy={isBusy}
+          onNameChange={setRenamePinName}
+          onConfirm={confirmRenamePin}
+          onCancel={cancelRenamePin}
         />
       ) : null}
 
@@ -1809,6 +1852,7 @@ function YourShopsPanel({
   onSelectPin,
   onRequestRestock,
   onRequestRadiusUpgrade,
+  onRequestRename,
   onRequestDelete
 }: {
   pins: GamePin[];
@@ -1819,6 +1863,7 @@ function YourShopsPanel({
   onSelectPin: (pinId: string) => void;
   onRequestRestock: (pinId: string) => void;
   onRequestRadiusUpgrade: (pinId: string) => void;
+  onRequestRename: (pinId: string) => void;
   onRequestDelete: (pinId: string) => void;
 }) {
   if (pins.length === 0) {
@@ -1851,6 +1896,7 @@ function YourShopsPanel({
                 nowMs={nowMs}
                 onRequestRestock={() => onRequestRestock(pin.id)}
                 onRequestRadiusUpgrade={() => onRequestRadiusUpgrade(pin.id)}
+                onRequestRename={() => onRequestRename(pin.id)}
                 onRequestDelete={() => onRequestDelete(pin.id)}
                 isBusy={isBusy}
               />
@@ -1921,7 +1967,7 @@ function ScoresPanel({
   );
 }
 
-function MessagesPanel({
+function BulletinsPanel({
   bulletins,
   isAdmin,
   isBusy,
@@ -1935,7 +1981,7 @@ function MessagesPanel({
   onDelete: (bulletinId: string) => void;
 }) {
   if (bulletins.length === 0) {
-    return <p className="muted">No messages yet.</p>;
+    return <p className="muted">No bulletins yet.</p>;
   }
 
   return (
@@ -1999,7 +2045,7 @@ function AdminPanel({
       <button className="shop-type-button" type="button" onClick={onCreateBulletin}>
         <span>
           <strong>Bulletin</strong>
-          <small>Send a message with an image to every player.</small>
+          <small>Send a bulletin with an image to every player.</small>
         </span>
         <Send size={20} />
       </button>
@@ -2371,8 +2417,8 @@ function getPanelTitle(panel: Exclude<ActivePanel, null>): string {
       return "Your Shops";
     case "leaderboard":
       return "Scores";
-    case "messages":
-      return "Messages";
+    case "bulletins":
+      return "Bulletins";
     case "admin":
       return "Admin";
     case "bulletin":
@@ -2825,6 +2871,7 @@ function PinDetail({
   nowMs,
   onRequestRestock,
   onRequestRadiusUpgrade,
+  onRequestRename,
   onRequestDelete,
   isBusy
 }: {
@@ -2834,6 +2881,7 @@ function PinDetail({
   nowMs: number;
   onRequestRestock: () => void;
   onRequestRadiusUpgrade: () => void;
+  onRequestRename: () => void;
   onRequestDelete: () => void;
   isBusy: boolean;
 }) {
@@ -2880,6 +2928,12 @@ function PinDetail({
         <button className="upgrade-action" type="button" onClick={onRequestRadiusUpgrade} disabled={isBusy}>
           <MapPin size={18} />
           Upgrade Radius
+        </button>
+      ) : null}
+      {isOwner ? (
+        <button className="secondary-action" type="button" onClick={onRequestRename} disabled={isBusy}>
+          <Pencil size={18} />
+          Rename Shop
         </button>
       ) : null}
       {isOwner ? (
@@ -3137,6 +3191,92 @@ function RadiusUpgradeConfirmPanel({
   );
 }
 
+function RenamePinConfirmPanel({
+  pin,
+  shopLevelConfig,
+  name,
+  pointsBalance,
+  isBusy,
+  onNameChange,
+  onConfirm,
+  onCancel
+}: {
+  pin: GamePin;
+  shopLevelConfig: ShopLevelConfig;
+  name: string;
+  pointsBalance: number;
+  isBusy: boolean;
+  onNameChange: (value: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const trimmedName = name.trim();
+  const hasEnoughTokens = pointsBalance >= GAME_CONFIG.renameCost;
+  const hasChanged = trimmedName.length > 0 && trimmedName !== pin.name;
+  const canConfirm = hasEnoughTokens && hasChanged;
+
+  return (
+    <section className="screen-panel screen-panel--confirm" role="dialog" aria-modal="true">
+      <div className="screen-panel__header">
+        <div className="section-title">
+          <Pencil size={20} />
+          <h2>Rename Shop</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={onCancel} title="Close">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="screen-panel__body">
+        <form
+          className="confirm-stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canConfirm) onConfirm();
+          }}
+        >
+          <p className="confirm-question">
+            Spend {formatCompactTokenCost(GAME_CONFIG.renameCost)} credits to rename?
+          </p>
+          <div className="selected-build-type">
+            <span>
+              <strong>
+                <ShopNameWithLevel pin={pin} config={shopLevelConfig} />
+              </strong>
+              <small>{pin.busyLabel} · {formatHourlyTokenRate(pin.currentHourlyRate)}</small>
+            </span>
+            <b>{formatCompactTokenCost(GAME_CONFIG.renameCost)}</b>
+          </div>
+          <label className="field">
+            <span>New shop name</span>
+            <input
+              value={name}
+              maxLength={80}
+              autoFocus
+              onChange={(event) => onNameChange(event.target.value)}
+              required
+            />
+          </label>
+          {!hasEnoughTokens ? <p className="muted">Not enough tokens.</p> : null}
+          {trimmedName && !hasChanged ? <p className="muted">Choose a new shop name.</p> : null}
+          <div className="build-confirm-actions">
+            <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
+              Cancel
+            </button>
+            <button
+              className="primary-action"
+              type="submit"
+              disabled={isBusy || !canConfirm}
+            >
+              <Pencil size={18} />
+              Confirm
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+  );
+}
+
 function DeleteBuildingConfirmPanel({
   pin,
   warehouse,
@@ -3224,7 +3364,7 @@ function DeleteBulletinConfirmPanel({
           <div className="selected-build-type">
             <span>
               <strong>{bulletin.title}</strong>
-              <small>Players will no longer see this message.</small>
+              <small>Players will no longer see this bulletin.</small>
             </span>
           </div>
           <div className="build-confirm-actions">

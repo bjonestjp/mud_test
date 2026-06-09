@@ -30,6 +30,7 @@ import type {
   PlacePinInput,
   PlaceWarehouseInput,
   PlayerProfile,
+  RenamePinInput,
   RestockPinInput,
   RestockWarehouseInput,
   ScoreHistoryPoint,
@@ -188,6 +189,16 @@ class SupabaseGameAdapter implements GameAdapter {
   async upgradePinRadius(input: { pinId: string }): Promise<GameState> {
     const { error } = await this.supabase.rpc("upgrade_pin_radius", {
       p_pin_id: input.pinId
+    });
+
+    if (error) throw error;
+    return this.refresh();
+  }
+
+  async renamePin(input: RenamePinInput): Promise<GameState> {
+    const { error } = await this.supabase.rpc("rename_pin", {
+      p_pin_id: input.pinId,
+      p_name: input.name
     });
 
     if (error) throw error;
