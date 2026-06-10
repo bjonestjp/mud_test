@@ -381,26 +381,24 @@ export function GameMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const zoneData = createDisplayShopRadiusFeatureCollection(displayPins);
 
     const updateAllRadiusLayer = () => {
+      if (!map.isStyleLoaded()) return;
+
       ensureAllShopRadiusLayers(map);
       const source = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
-
-      source?.setData(
-        showAllRadii
-          ? createDisplayShopRadiusFeatureCollection(displayPins)
-          : EMPTY_RADIUS_DATA
-      );
+      source?.setData(zoneData);
+      setShopRadiusLayerVisibility(map, showAllRadii);
     };
 
-    if (map.isStyleLoaded()) {
-      updateAllRadiusLayer();
-      return;
-    }
-
+    updateAllRadiusLayer();
     map.once("load", updateAllRadiusLayer);
+    map.on("styledata", updateAllRadiusLayer);
+
     return () => {
       map.off("load", updateAllRadiusLayer);
+      map.off("styledata", updateAllRadiusLayer);
     };
   }, [displayPins, showAllRadii]);
 
@@ -700,25 +698,24 @@ function ensureAllShopRadiusLayers(map: Map): void {
     });
   }
 
-  const beforeSelectedRadiusLayer = map.getLayer(COMPETITION_RADIUS_FILL_LAYER_ID)
-    ? COMPETITION_RADIUS_FILL_LAYER_ID
-    : undefined;
-
   if (!map.getLayer(ALL_RADIUS_FILL_LAYER_ID)) {
     map.addLayer({
       id: ALL_RADIUS_FILL_LAYER_ID,
       type: "fill",
       source: ALL_RADIUS_SOURCE_ID,
+      layout: {
+        visibility: "none"
+      },
       paint: {
         "fill-color": ["get", "ownerColor"],
         "fill-opacity": [
           "case",
           ["==", ["get", "status"], "stocked"],
-          0.08,
+          0.1,
           0.035
         ]
       }
-    }, beforeSelectedRadiusLayer);
+    });
   }
 
   if (!map.getLayer(ALL_RADIUS_LINE_LAYER_ID)) {
@@ -726,22 +723,37 @@ function ensureAllShopRadiusLayers(map: Map): void {
       id: ALL_RADIUS_LINE_LAYER_ID,
       type: "line",
       source: ALL_RADIUS_SOURCE_ID,
+      layout: {
+        visibility: "none"
+      },
       paint: {
         "line-color": ["get", "ownerColor"],
         "line-opacity": [
           "case",
           ["==", ["get", "status"], "stocked"],
-          0.38,
-          0.18
+          0.62,
+          0.28
         ],
         "line-width": [
           "case",
           ["==", ["get", "status"], "stocked"],
-          1.5,
+          1.8,
           1
         ]
       }
-    }, beforeSelectedRadiusLayer);
+    });
+  }
+}
+
+function setShopRadiusLayerVisibility(map: Map, isVisible: boolean): void {
+  const visibility = isVisible ? "visible" : "none";
+
+  if (map.getLayer(ALL_RADIUS_FILL_LAYER_ID)) {
+    map.setLayoutProperty(ALL_RADIUS_FILL_LAYER_ID, "visibility", visibility);
+  }
+
+  if (map.getLayer(ALL_RADIUS_LINE_LAYER_ID)) {
+    map.setLayoutProperty(ALL_RADIUS_LINE_LAYER_ID, "visibility", visibility);
   }
 }
 
