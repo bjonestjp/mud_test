@@ -80,6 +80,9 @@ const MIRROR_DUPLICATE_DISTANCE_M = 75;
 const ALL_RADIUS_SOURCE_ID = "all-shop-radii";
 const ALL_RADIUS_FILL_LAYER_ID = "all-shop-radii-fill";
 const ALL_RADIUS_LINE_LAYER_ID = "all-shop-radii-line";
+const MIRROR_RADIUS_SOURCE_ID = "mirror-shop-radii";
+const MIRROR_RADIUS_FILL_LAYER_ID = "mirror-shop-radii-fill";
+const MIRROR_RADIUS_LINE_LAYER_ID = "mirror-shop-radii-line";
 const WAREHOUSE_RADIUS_SOURCE_ID = "warehouse-radii";
 const WAREHOUSE_RADIUS_FILL_LAYER_ID = "warehouse-radii-fill";
 const WAREHOUSE_RADIUS_LINE_LAYER_ID = "warehouse-radii-line";
@@ -134,6 +137,14 @@ export function GameMap({
   const displayPins = useMemo(
     () => createDisplayPins(visiblePins, homeBase, exportPlayers),
     [exportPlayers, homeBase, visiblePins]
+  );
+  const canonicalDisplayPins = useMemo(
+    () => displayPins.filter((pin) => !pin.isMirror),
+    [displayPins]
+  );
+  const mirrorDisplayPins = useMemo(
+    () => displayPins.filter((pin) => pin.isMirror),
+    [displayPins]
   );
   const selectedPin = useMemo(
     () => visiblePins.find((pin) => pin.id === selectedPinId) ?? null,
@@ -384,10 +395,18 @@ export function GameMap({
 
     const updateAllRadiusLayer = () => {
       ensureAllShopRadiusLayers(map);
-      const source = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
-      source?.setData(
+      ensureMirrorShopRadiusLayers(map);
+      const allSource = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
+      const mirrorSource = map.getSource(MIRROR_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
+
+      allSource?.setData(
         showAllRadii
-          ? createDisplayShopRadiusFeatureCollection(displayPins)
+          ? createDisplayShopRadiusFeatureCollection(canonicalDisplayPins)
+          : EMPTY_RADIUS_DATA
+      );
+      mirrorSource?.setData(
+        showAllRadii
+          ? createDisplayShopRadiusFeatureCollection(mirrorDisplayPins)
           : EMPTY_RADIUS_DATA
       );
     };
@@ -401,7 +420,7 @@ export function GameMap({
     return () => {
       map.off("load", updateAllRadiusLayer);
     };
-  }, [displayPins, showAllRadii]);
+  }, [canonicalDisplayPins, mirrorDisplayPins, showAllRadii]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -645,7 +664,22 @@ function createDisplayPins(
     return canonicalPins;
   }
 
-  const mirrorPins: DisplayPin[] = [];
+  const mirrorPinsByKey = new globalThis.Map<string, DisplayPin>();
+  for (const pin of pins) {
+    if (!hasPhysicalCoordinate(pin)) continue;
+
+    const physicalLocation = { lat: pin.physicalLat, lng: pin.physicalLng };
+    if (distanceMeters(pin, physicalLocation) < MIRROR_DUPLICATE_DISTANCE_M) continue;
+
+    mirrorPinsByKey.set(`physical:${pin.id}`, {
+      key: `physical:${pin.id}`,
+      pin,
+      lat: physicalLocation.lat,
+      lng: physicalLocation.lng,
+      isMirror: true
+    });
+  }
+
   for (const player of exportPlayers) {
     if (!player.homeBase || !hasValidCoordinate(player.homeBase)) continue;
     if (distanceMeters(homeBase, player.homeBase) < MIN_EXPORT_MIRROR_HOME_DISTANCE_M) continue;
@@ -660,7 +694,10 @@ function createDisplayPins(
       if (!hasValidCoordinate(location)) continue;
       if (distanceMeters(pin, location) < MIRROR_DUPLICATE_DISTANCE_M) continue;
 
-      mirrorPins.push({
+      const key = `mirror:${player.playerId}:${pin.id}`;
+      if (hasNearbyMirror([...mirrorPinsByKey.values()], pin.id, location)) continue;
+
+      mirrorPinsByKey.set(key, {
         key: `mirror:${player.playerId}:${pin.id}`,
         pin,
         lat: location.lat,
@@ -670,7 +707,7 @@ function createDisplayPins(
     }
   }
 
-  return [...canonicalPins, ...mirrorPins];
+  return [...canonicalPins, ...mirrorPinsByKey.values()];
 }
 
 function ensureAllShopRadiusLayers(map: Map): void {
@@ -721,6 +758,60 @@ function ensureAllShopRadiusLayers(map: Map): void {
           1.5,
           1
         ]
+      }
+    }, beforeSelectedRadiusLayer);
+  }
+}
+
+function ensureMirrorShopRadiusLayers(map: Map): void {
+  if (!map.getSource(MIRROR_RADIUS_SOURCE_ID)) {
+    map.addSource(MIRROR_RADIUS_SOURCE_ID, {
+      type: "geojson",
+      data: EMPTY_RADIUS_DATA
+    });
+  }
+
+  const beforeSelectedRadiusLayer = map.getLayer(COMPETITION_RADIUS_FILL_LAYER_ID)
+    ? COMPETITION_RADIUS_FILL_LAYER_ID
+    : undefined;
+
+  if (!map.getLayer(MIRROR_RADIUS_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: MIRROR_RADIUS_FILL_LAYER_ID,
+      type: "fill",
+      source: MIRROR_RADIUS_SOURCE_ID,
+      paint: {
+        "fill-color": ["get", "ownerColor"],
+        "fill-opacity": [
+          "case",
+          ["==", ["get", "status"], "stocked"],
+          0.05,
+          0.025
+        ]
+      }
+    }, beforeSelectedRadiusLayer);
+  }
+
+  if (!map.getLayer(MIRROR_RADIUS_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MIRROR_RADIUS_LINE_LAYER_ID,
+      type: "line",
+      source: MIRROR_RADIUS_SOURCE_ID,
+      paint: {
+        "line-color": ["get", "ownerColor"],
+        "line-opacity": [
+          "case",
+          ["==", ["get", "status"], "stocked"],
+          0.64,
+          0.28
+        ],
+        "line-width": [
+          "case",
+          ["==", ["get", "status"], "stocked"],
+          1.6,
+          1
+        ],
+        "line-dasharray": [2.2, 1.4]
       }
     }, beforeSelectedRadiusLayer);
   }
@@ -1015,6 +1106,17 @@ function createDisplayShopRadiusFeatureCollection(
       }
     }))
   };
+}
+
+function hasNearbyMirror(
+  mirrors: DisplayPin[],
+  pinId: string,
+  location: { lat: number; lng: number }
+): boolean {
+  return mirrors.some((mirror) =>
+    mirror.pin.id === pinId &&
+    distanceMeters(mirror, location) < MIRROR_DUPLICATE_DISTANCE_M
+  );
 }
 
 function createWarehouseRadiusFeatureCollection(
