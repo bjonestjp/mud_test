@@ -75,6 +75,8 @@ const SHINGLE_DISTANCE_PX = 34;
 const SHINGLE_RING_SIZE = 6;
 const SHINGLE_FIRST_RING_RADIUS_PX = 17;
 const SHINGLE_RING_STEP_PX = 11;
+const MIN_EXPORT_MIRROR_HOME_DISTANCE_M = 10_000;
+const MIRROR_DUPLICATE_DISTANCE_M = 75;
 const ALL_RADIUS_SOURCE_ID = "all-shop-radii";
 const ALL_RADIUS_FILL_LAYER_ID = "all-shop-radii-fill";
 const ALL_RADIUS_LINE_LAYER_ID = "all-shop-radii-line";
@@ -635,6 +637,7 @@ function createDisplayPins(
   const mirrorPins: DisplayPin[] = [];
   for (const player of exportPlayers) {
     if (!player.homeBase || !hasValidCoordinate(player.homeBase)) continue;
+    if (distanceMeters(homeBase, player.homeBase) < MIN_EXPORT_MIRROR_HOME_DISTANCE_M) continue;
 
     for (const pin of pins) {
       const physicalCoordinate = pin.ownerId === player.playerId && hasPhysicalCoordinate(pin)
@@ -644,6 +647,7 @@ function createDisplayPins(
         projectPointBetweenHomeBases(homeBase, player.homeBase, pin);
 
       if (!hasValidCoordinate(location)) continue;
+      if (distanceMeters(pin, location) < MIRROR_DUPLICATE_DISTANCE_M) continue;
 
       mirrorPins.push({
         key: `mirror:${player.playerId}:${pin.id}`,
