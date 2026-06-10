@@ -80,9 +80,6 @@ const MIRROR_DUPLICATE_DISTANCE_M = 75;
 const ALL_RADIUS_SOURCE_ID = "all-shop-radii";
 const ALL_RADIUS_FILL_LAYER_ID = "all-shop-radii-fill";
 const ALL_RADIUS_LINE_LAYER_ID = "all-shop-radii-line";
-const MIRROR_RADIUS_SOURCE_ID = "mirror-shop-radii";
-const MIRROR_RADIUS_FILL_LAYER_ID = "mirror-shop-radii-fill";
-const MIRROR_RADIUS_LINE_LAYER_ID = "mirror-shop-radii-line";
 const WAREHOUSE_RADIUS_SOURCE_ID = "warehouse-radii";
 const WAREHOUSE_RADIUS_FILL_LAYER_ID = "warehouse-radii-fill";
 const WAREHOUSE_RADIUS_LINE_LAYER_ID = "warehouse-radii-line";
@@ -137,14 +134,6 @@ export function GameMap({
   const displayPins = useMemo(
     () => createDisplayPins(visiblePins, homeBase, exportPlayers),
     [exportPlayers, homeBase, visiblePins]
-  );
-  const canonicalDisplayPins = useMemo(
-    () => displayPins.filter((pin) => !pin.isMirror),
-    [displayPins]
-  );
-  const mirrorDisplayPins = useMemo(
-    () => displayPins.filter((pin) => pin.isMirror),
-    [displayPins]
   );
   const selectedPin = useMemo(
     () => visiblePins.find((pin) => pin.id === selectedPinId) ?? null,
@@ -395,18 +384,11 @@ export function GameMap({
 
     const updateAllRadiusLayer = () => {
       ensureAllShopRadiusLayers(map);
-      ensureMirrorShopRadiusLayers(map);
-      const allSource = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
-      const mirrorSource = map.getSource(MIRROR_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
+      const source = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
 
-      allSource?.setData(
+      source?.setData(
         showAllRadii
-          ? createDisplayShopRadiusFeatureCollection(canonicalDisplayPins)
-          : EMPTY_RADIUS_DATA
-      );
-      mirrorSource?.setData(
-        showAllRadii
-          ? createDisplayShopRadiusFeatureCollection(mirrorDisplayPins)
+          ? createDisplayShopRadiusFeatureCollection(displayPins)
           : EMPTY_RADIUS_DATA
       );
     };
@@ -420,7 +402,7 @@ export function GameMap({
     return () => {
       map.off("load", updateAllRadiusLayer);
     };
-  }, [canonicalDisplayPins, mirrorDisplayPins, showAllRadii]);
+  }, [displayPins, showAllRadii]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -758,60 +740,6 @@ function ensureAllShopRadiusLayers(map: Map): void {
           1.5,
           1
         ]
-      }
-    }, beforeSelectedRadiusLayer);
-  }
-}
-
-function ensureMirrorShopRadiusLayers(map: Map): void {
-  if (!map.getSource(MIRROR_RADIUS_SOURCE_ID)) {
-    map.addSource(MIRROR_RADIUS_SOURCE_ID, {
-      type: "geojson",
-      data: EMPTY_RADIUS_DATA
-    });
-  }
-
-  const beforeSelectedRadiusLayer = map.getLayer(COMPETITION_RADIUS_FILL_LAYER_ID)
-    ? COMPETITION_RADIUS_FILL_LAYER_ID
-    : undefined;
-
-  if (!map.getLayer(MIRROR_RADIUS_FILL_LAYER_ID)) {
-    map.addLayer({
-      id: MIRROR_RADIUS_FILL_LAYER_ID,
-      type: "fill",
-      source: MIRROR_RADIUS_SOURCE_ID,
-      paint: {
-        "fill-color": ["get", "ownerColor"],
-        "fill-opacity": [
-          "case",
-          ["==", ["get", "status"], "stocked"],
-          0.05,
-          0.025
-        ]
-      }
-    }, beforeSelectedRadiusLayer);
-  }
-
-  if (!map.getLayer(MIRROR_RADIUS_LINE_LAYER_ID)) {
-    map.addLayer({
-      id: MIRROR_RADIUS_LINE_LAYER_ID,
-      type: "line",
-      source: MIRROR_RADIUS_SOURCE_ID,
-      paint: {
-        "line-color": ["get", "ownerColor"],
-        "line-opacity": [
-          "case",
-          ["==", ["get", "status"], "stocked"],
-          0.64,
-          0.28
-        ],
-        "line-width": [
-          "case",
-          ["==", ["get", "status"], "stocked"],
-          1.6,
-          1
-        ],
-        "line-dasharray": [2.2, 1.4]
       }
     }, beforeSelectedRadiusLayer);
   }
