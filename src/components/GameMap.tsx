@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef } from "react";
 import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
 import { competitionRadiusForLevel, EDINBURGH_CENTER, GAME_CONFIG } from "../lib/constants";
-import { competitionPressure, distanceMeters } from "../lib/geo";
-import type { DemandEvent, GamePin, HomeBase, LocationReading, Warehouse } from "../types";
+import { competitionPressure, distanceMeters, projectPointBetweenHomeBases } from "../lib/geo";
+import type { DemandEvent, ExportPlayerHome, GamePin, HomeBase, LocationReading, Warehouse } from "../types";
 
 interface GameMapProps {
   pins: GamePin[];
   warehouses: Warehouse[];
   homeBase: HomeBase | null;
+  exportPlayers: ExportPlayerHome[];
   currentPlayerId: string | null;
   playerLocation: LocationReading | null;
   focusLocation: LocationFocus | null;
@@ -45,6 +46,10 @@ interface WarehousePreview {
 interface MarkerEntry {
   marker: Marker;
   pin: GamePin;
+  key: string;
+  lat: number;
+  lng: number;
+  isMirror: boolean;
 }
 
 interface ProjectedMarkerEntry extends MarkerEntry {
@@ -54,6 +59,14 @@ interface ProjectedMarkerEntry extends MarkerEntry {
 interface ExportTargetConstraint {
   center: { lat: number; lng: number };
   radiusM: number;
+}
+
+interface DisplayPin {
+  key: string;
+  pin: GamePin;
+  lat: number;
+  lng: number;
+  isMirror: boolean;
 }
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -86,6 +99,7 @@ export function GameMap({
   pins,
   warehouses,
   homeBase,
+  exportPlayers,
   currentPlayerId,
   playerLocation,
   focusLocation,
@@ -111,13 +125,21 @@ export function GameMap({
   const homeBaseMarkerRef = useRef<Marker | null>(null);
   const demandEventLabelMarkersRef = useRef<Marker[]>([]);
   const exportTargetConstraintRef = useRef<ExportTargetConstraint | null>(null);
+  const selectedDisplayLocationRef = useRef<{ pinId: string; lat: number; lng: number } | null>(null);
   const isClampingCenterRef = useRef(false);
   const onMapCenterChangeRef = useRef(onMapCenterChange);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
+  const displayPins = useMemo(
+    () => createDisplayPins(visiblePins, homeBase, exportPlayers),
+    [exportPlayers, homeBase, visiblePins]
+  );
   const selectedPin = useMemo(
     () => visiblePins.find((pin) => pin.id === selectedPinId) ?? null,
     [selectedPinId, visiblePins]
   );
+  const selectedRadiusCenter = selectedPin && selectedDisplayLocationRef.current?.pinId === selectedPin.id
+    ? selectedDisplayLocationRef.current
+    : selectedPin;
   const affectedPinIds = useMemo(() => {
     const ids = new Set<string>();
     if (!selectedPin || selectedPin.status !== "stocked") return ids;
@@ -224,23 +246,25 @@ export function GameMap({
     };
 
     markersRef.current.forEach((entry) => entry.marker.remove());
-    markersRef.current = visiblePins.map((pin, index) => {
+    markersRef.current = displayPins.map((displayPin, index) => {
+      const { pin } = displayPin;
       const element = document.createElement("button");
       element.type = "button";
       element.className = [
         "pin-marker",
         pin.ownerId === currentPlayerId ? "pin-marker--own" : "pin-marker--rival",
+        displayPin.isMirror ? "pin-marker--mirror" : "",
         pin.status !== "stocked" ? "pin-marker--inactive" : "",
         pin.id === selectedPinId ? "pin-marker--selected" : "",
         affectedPinIds.has(pin.id) ? "pin-marker--affected" : ""
       ]
         .filter(Boolean)
         .join(" ");
-      element.title = pin.name;
+      element.title = displayPin.isMirror ? `${pin.name} (mirror)` : pin.name;
       element.style.setProperty("--pin-color", pin.ownerColor);
-      element.setAttribute("aria-label", pin.name);
+      element.setAttribute("aria-label", displayPin.isMirror ? `${pin.name} mirror` : pin.name);
 
-      if (pin.status === "stocked" && pin.currentHourlyRate > 0) {
+      if (!displayPin.isMirror && pin.status === "stocked" && pin.currentHourlyRate > 0) {
         const incomePulse = document.createElement("span");
         const durationMs = getIncomePulseDurationMs(pin.currentHourlyRate);
         incomePulse.className = "pin-income-bubble";
@@ -263,14 +287,26 @@ export function GameMap({
 
       element.addEventListener("click", (event) => {
         event.stopPropagation();
+        selectedDisplayLocationRef.current = {
+          pinId: pin.id,
+          lat: displayPin.lat,
+          lng: displayPin.lng
+        };
         onSelectPin(pin);
       });
 
       const marker = new maplibregl.Marker({ element, anchor: "center" })
-        .setLngLat([pin.lng, pin.lat])
+        .setLngLat([displayPin.lng, displayPin.lat])
         .addTo(map);
 
-      return { marker, pin };
+      return {
+        marker,
+        pin,
+        key: displayPin.key,
+        lat: displayPin.lat,
+        lng: displayPin.lng,
+        isMirror: displayPin.isMirror
+      };
     });
     updateMarkerShingles(map, markersRef.current, selectedPinId);
     map.on("move", scheduleShingles);
@@ -285,7 +321,7 @@ export function GameMap({
       markersRef.current.forEach((entry) => entry.marker.remove());
       markersRef.current = [];
     };
-  }, [affectedPinIds, currentPlayerId, onSelectPin, selectedPinId, visiblePins]);
+  }, [affectedPinIds, currentPlayerId, displayPins, onSelectPin, selectedPinId]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -338,7 +374,7 @@ export function GameMap({
       const source = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
       source?.setData(
         showAllRadii
-          ? createShopRadiusFeatureCollection(visiblePins)
+          ? createDisplayShopRadiusFeatureCollection(displayPins)
           : EMPTY_RADIUS_DATA
       );
     };
@@ -352,7 +388,7 @@ export function GameMap({
     return () => {
       map.off("load", updateAllRadiusLayer);
     };
-  }, [showAllRadii, visiblePins]);
+  }, [displayPins, showAllRadii]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -405,8 +441,8 @@ export function GameMap({
       ensureCompetitionRadiusLayers(map);
       const source = map.getSource(COMPETITION_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
       source?.setData(
-        selectedPin
-          ? createRadiusFeatureCollection(selectedPin, competitionRadiusForLevel(selectedPin.radiusLevel))
+        selectedPin && selectedRadiusCenter
+          ? createRadiusFeatureCollection(selectedRadiusCenter, competitionRadiusForLevel(selectedPin.radiusLevel))
           : EMPTY_RADIUS_DATA
       );
     };
@@ -420,7 +456,7 @@ export function GameMap({
     return () => {
       map.off("load", updateRadiusLayer);
     };
-  }, [selectedPin]);
+  }, [selectedPin, selectedRadiusCenter]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -551,14 +587,14 @@ export function GameMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedPin) return;
+    if (!map || !selectedPin || !selectedRadiusCenter) return;
 
     map.easeTo({
-      center: [selectedPin.lng, selectedPin.lat],
+      center: [selectedRadiusCenter.lng, selectedRadiusCenter.lat],
       duration: 500,
       zoom: Math.max(map.getZoom(), 14)
     });
-  }, [selectedPin]);
+  }, [selectedPin, selectedRadiusCenter]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -577,6 +613,49 @@ export function GameMap({
       {isDemoMode || isChoosingMapTarget ? <div className="map-crosshair" aria-hidden="true" /> : null}
     </div>
   );
+}
+
+function createDisplayPins(
+  pins: GamePin[],
+  homeBase: HomeBase | null,
+  exportPlayers: ExportPlayerHome[]
+): DisplayPin[] {
+  const canonicalPins = pins.map((pin) => ({
+    key: `pin:${pin.id}`,
+    pin,
+    lat: pin.lat,
+    lng: pin.lng,
+    isMirror: false
+  }));
+
+  if (!homeBase || !hasValidCoordinate(homeBase)) {
+    return canonicalPins;
+  }
+
+  const mirrorPins: DisplayPin[] = [];
+  for (const player of exportPlayers) {
+    if (!player.homeBase || !hasValidCoordinate(player.homeBase)) continue;
+
+    for (const pin of pins) {
+      const physicalCoordinate = pin.ownerId === player.playerId && hasPhysicalCoordinate(pin)
+        ? { lat: pin.physicalLat, lng: pin.physicalLng }
+        : null;
+      const location = physicalCoordinate ??
+        projectPointBetweenHomeBases(homeBase, player.homeBase, pin);
+
+      if (!hasValidCoordinate(location)) continue;
+
+      mirrorPins.push({
+        key: `mirror:${player.playerId}:${pin.id}`,
+        pin,
+        lat: location.lat,
+        lng: location.lng,
+        isMirror: true
+      });
+    }
+  }
+
+  return [...canonicalPins, ...mirrorPins];
 }
 
 function ensureAllShopRadiusLayers(map: Map): void {
@@ -779,7 +858,7 @@ function updateMarkerShingles(
   if (entries.length === 0) return;
 
   const projectedEntries = entries.map((entry) => {
-    const point = map.project([entry.pin.lng, entry.pin.lat]);
+    const point = map.project([entry.lng, entry.lat]);
     return {
       ...entry,
       point: { x: point.x, y: point.y }
@@ -804,21 +883,21 @@ function getShingleGroups(entries: ProjectedMarkerEntry[]): ProjectedMarkerEntry
   const visited = new Set<string>();
 
   for (const entry of entries) {
-    if (visited.has(entry.pin.id)) continue;
+    if (visited.has(entry.key)) continue;
 
     const group: ProjectedMarkerEntry[] = [];
     const queue = [entry];
-    visited.add(entry.pin.id);
+    visited.add(entry.key);
 
     for (let index = 0; index < queue.length; index += 1) {
       const current = queue[index];
       group.push(current);
 
       for (const candidate of entries) {
-        if (visited.has(candidate.pin.id)) continue;
+        if (visited.has(candidate.key)) continue;
         if (screenDistance(current.point, candidate.point) > SHINGLE_DISTANCE_PX) continue;
 
-        visited.add(candidate.pin.id);
+        visited.add(candidate.key);
         queue.push(candidate);
       }
     }
@@ -891,6 +970,31 @@ function createShopRadiusFeatureCollection(
           createRadiusCoordinates(
             pin,
             competitionRadiusForLevel(pin.radiusLevel)
+          )
+        ]
+      }
+    }))
+  };
+}
+
+function createDisplayShopRadiusFeatureCollection(
+  displayPins: DisplayPin[]
+): Parameters<GeoJSONSource["setData"]>[0] {
+  return {
+    type: "FeatureCollection",
+    features: displayPins.map((displayPin) => ({
+      type: "Feature",
+      properties: {
+        id: displayPin.key,
+        ownerColor: displayPin.pin.ownerColor,
+        status: displayPin.pin.status
+      },
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          createRadiusCoordinates(
+            displayPin,
+            competitionRadiusForLevel(displayPin.pin.radiusLevel)
           )
         ]
       }
@@ -1097,5 +1201,16 @@ function hasValidCoordinate<T extends { lat?: number; lng?: number }>(
     Number.isFinite(lng) &&
     Math.abs(lat as number) <= 90 &&
     Math.abs(lng as number) <= 180
+  );
+}
+
+function hasPhysicalCoordinate(
+  pin: GamePin
+): pin is GamePin & { physicalLat: number; physicalLng: number } {
+  return (
+    Number.isFinite(pin.physicalLat) &&
+    Number.isFinite(pin.physicalLng) &&
+    Math.abs(pin.physicalLat as number) <= 90 &&
+    Math.abs(pin.physicalLng as number) <= 180
   );
 }

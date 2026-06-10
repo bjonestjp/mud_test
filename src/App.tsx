@@ -34,7 +34,7 @@ import {
   pointsToTokenProgress,
   pointsToWholeTokens
 } from "./lib/constants";
-import { distanceMeters, requestCurrentLocation } from "./lib/geo";
+import { distanceMeters, projectPointBetweenHomeBases, requestCurrentLocation } from "./lib/geo";
 import type { Bulletin, DemandEvent, ExportPlayerHome, GamePin, GameState, HomeBase, LeaderboardRow, LocationReading, PinType, ScoreHistoryPoint, ShopLevelConfig, Warehouse } from "./types";
 
 const DEFAULT_SHOP_LEVEL_CONFIG: ShopLevelConfig = {
@@ -76,6 +76,8 @@ interface PendingBuild {
   label: string;
   costPoints: number;
   location: LocationReading;
+  physicalLocation?: LocationReading | null;
+  isExportPlacement?: boolean;
 }
 
 interface PendingWarehouseBuild {
@@ -117,6 +119,11 @@ const SHOP_TYPES: ShopTypeOption[] = [
     costPoints: GAME_CONFIG.temporaryPinCost
   }
 ];
+
+const EXPORT_SHOP_TYPES: ShopTypeOption[] = SHOP_TYPES.map((option) => ({
+  ...option,
+  costPoints: GAME_CONFIG.exportShopCost
+}));
 
 const SHOP_LEVEL_VISUALS = [
   { label: "Grey Dot", dots: 1, color: "#8c9691" },
@@ -219,7 +226,8 @@ export default function App() {
   const isExportPlayer = game.profile?.playerMode === "export";
   const ownExportPlayerHome = game.exportPlayers.find((player) => player.playerId === game.profile?.id)?.homeBase ?? null;
   const selectedExportHomePlayer = game.exportPlayers.find((player) => player.playerId === selectedExportHomePlayerId) ?? null;
-  const selectedShopType = SHOP_TYPES.find((option) => option.pinType === selectedBuildType) ?? null;
+  const availableShopTypes = isExportPlayer ? EXPORT_SHOP_TYPES : SHOP_TYPES;
+  const selectedShopType = availableShopTypes.find((option) => option.pinType === selectedBuildType) ?? null;
   const activeDemandEvents = game.demandEvents.filter((event) => isDemandEventActive(event, nowMs));
   const shopLevelConfig = useMemo(
     () => normalizeShopLevelConfig(game.shopLevelConfig),
@@ -336,19 +344,33 @@ export default function App() {
 
   const previewBuild = () =>
     run(async () => {
-      if (isExportPlayer) {
-        throw new Error("Export players build shops through warehouses.");
-      }
-
       if (!selectedShopType) {
         throw new Error("Choose a shop type first.");
       }
 
+      if (isExportPlayer && !ownExportPlayerHome) {
+        throw new Error("An admin needs to set your export home base first.");
+      }
+
+      if (isExportPlayer && !game.homeBase) {
+        throw new Error("The game home base has not been set yet.");
+      }
+
       const location = await getPlacementLocation(game.isDemoMode, playerLocation);
+      const projectedLocation = isExportPlayer && ownExportPlayerHome && game.homeBase
+        ? projectPointBetweenHomeBases(ownExportPlayerHome, game.homeBase, location)
+        : null;
+      const buildLocation: LocationReading = projectedLocation
+        ? {
+            lat: projectedLocation.lat,
+            lng: projectedLocation.lng,
+            accuracy: location.accuracy
+          }
+        : location;
       setPlayerLocation(location);
       setFocusLocation({
-        lat: location.lat,
-        lng: location.lng,
+        lat: buildLocation.lat,
+        lng: buildLocation.lng,
         requestId: Date.now()
       });
       setPendingBuild({
@@ -356,7 +378,9 @@ export default function App() {
         pinType: selectedShopType.pinType,
         label: selectedShopType.label,
         costPoints: selectedShopType.costPoints,
-        location
+        location: buildLocation,
+        physicalLocation: projectedLocation ? location : null,
+        isExportPlacement: Boolean(projectedLocation)
       });
       setActivePanel(null);
     }, "Check the map, then confirm");
@@ -389,13 +413,21 @@ export default function App() {
     if (!pendingBuild) return;
 
     void run(async () => {
-      const next = await adapter.placePin({
-        lat: pendingBuild.location.lat,
-        lng: pendingBuild.location.lng,
-        accuracy: pendingBuild.location.accuracy,
-        name: pendingBuild.name,
-        pinType: pendingBuild.pinType
-      });
+      const next = pendingBuild.isExportPlacement
+        ? await adapter.exportPlacePin({
+            lat: pendingBuild.physicalLocation?.lat ?? pendingBuild.location.lat,
+            lng: pendingBuild.physicalLocation?.lng ?? pendingBuild.location.lng,
+            accuracy: pendingBuild.physicalLocation?.accuracy ?? pendingBuild.location.accuracy,
+            name: pendingBuild.name,
+            pinType: pendingBuild.pinType
+          })
+        : await adapter.placePin({
+            lat: pendingBuild.location.lat,
+            lng: pendingBuild.location.lng,
+            accuracy: pendingBuild.location.accuracy,
+            name: pendingBuild.name,
+            pinType: pendingBuild.pinType
+          });
       setShopName("");
       setSelectedPinId(next.pins[0]?.id ?? null);
       setPendingBuild(null);
@@ -490,9 +522,9 @@ export default function App() {
 
     void run(async () => {
       const next = await adapter.exportPlacePin({
-        warehouseId: pendingExportBuild.warehouseId,
         lat: mapCenter.lat,
         lng: mapCenter.lng,
+        accuracy: null,
         name: pendingExportBuild.name,
         pinType: pendingExportBuild.pinType
       });
@@ -514,12 +546,6 @@ export default function App() {
   };
 
   const requestRestock = (pinId: string) => {
-    if (isExportPlayer) {
-      setExportRestockPinId(pinId);
-      setExportRestockWarehouseId(null);
-      return;
-    }
-
     setPendingRestockPinId(pinId);
   };
 
@@ -728,24 +754,35 @@ export default function App() {
         lng: location.lng,
         requestId: Date.now()
       });
-      const next = await adapter.restockPin({
-        pinId,
-        lat: location.lat,
-        lng: location.lng,
-        accuracy: location.accuracy
-      });
+      const next = isExportPlayer
+        ? await adapter.exportRestockPin({
+            pinId,
+            lat: location.lat,
+            lng: location.lng,
+            accuracy: location.accuracy
+          })
+        : await adapter.restockPin({
+            pinId,
+            lat: location.lat,
+            lng: location.lng,
+            accuracy: location.accuracy
+          });
       setPendingRestockPinId(null);
       return next;
     }, "Restocked");
   };
 
   const confirmExportRestock = () => {
-    if (!pendingExportRestockPin || !exportRestockWarehouse) return;
+    if (!pendingExportRestockPin) return;
 
     void run(async () => {
+      const location = await getRestockLocation(game.isDemoMode, playerLocation);
+      setPlayerLocation(location);
       const next = await adapter.exportRestockPin({
         pinId: pendingExportRestockPin.id,
-        warehouseId: exportRestockWarehouse.id
+        lat: location.lat,
+        lng: location.lng,
+        accuracy: location.accuracy
       });
       setExportRestockPinId(null);
       setExportRestockWarehouseId(null);
@@ -944,17 +981,18 @@ export default function App() {
     <main className="app-shell">
       <GameMap
         pins={game.pins}
-        warehouses={game.warehouses}
+        warehouses={[]}
         homeBase={game.homeBase}
+        exportPlayers={game.exportPlayers}
         currentPlayerId={game.profile?.id ?? null}
         playerLocation={playerLocation}
         focusLocation={focusLocation}
         buildPreview={pendingBuild}
-        warehousePreview={pendingWarehouseBuild}
+        warehousePreview={null}
         demandEvents={activeDemandEvents}
         selectedPinId={selectedPinId}
         showAllRadii={showAllRadii}
-        exportTargetRadiusM={isChoosingExportTarget ? exportBuildWarehouse?.radiusM ?? null : null}
+        exportTargetRadiusM={null}
         nowMs={nowMs}
         isDemoMode={game.isDemoMode}
         isChoosingMapTarget={isChoosingDemandEventCenter || isChoosingHomeBase || isChoosingExportHomeBase || isChoosingExportTarget}
@@ -1131,45 +1169,19 @@ export default function App() {
 
           <div className="screen-panel__body">
             {activePanel === "build" ? (
-              isExportPlayer ? (
-                <ExportBuildPanel
-                  warehouses={ownWarehouses}
-                  homeBase={game.homeBase}
-                  exportHomeBase={ownExportPlayerHome}
-                  selectedWarehouse={exportBuildWarehouse}
-                  selectedBuildType={selectedBuildType}
-                  selectedShopType={selectedShopType}
-                  warehouseName={warehouseName}
-                  shopName={shopName}
-                  pointsBalance={game.profile?.pointsBalance ?? 0}
-                  isBusy={isBusy}
-                  isDemoMode={game.isDemoMode}
-                  hasPlayerLocation={Boolean(playerLocation)}
-                  nowMs={nowMs}
-                  onWarehouseNameChange={setWarehouseName}
-                  onPreviewWarehouseBuild={previewWarehouseBuild}
-                  onStartExportBuild={startExportBuild}
-                  onRestockWarehouse={restockWarehouse}
-                  onSelectBuildType={setSelectedBuildType}
-                  onShopNameChange={setShopName}
-                  onPreviewExportBuild={previewExportBuild}
-                  onCancelExportBuild={() => setExportBuildWarehouseId(null)}
-                  onRequestDeleteWarehouse={requestDeleteWarehouse}
-                />
-              ) : (
-                <BuildPanel
-                  shopTypes={SHOP_TYPES}
-                  selectedBuildType={selectedBuildType}
-                  onSelectBuildType={setSelectedBuildType}
-                  shopName={shopName}
-                  setShopName={setShopName}
-                  pointsBalance={game.profile?.pointsBalance ?? 0}
-                  isBusy={isBusy}
-                  isDemoMode={game.isDemoMode}
-                  hasPlayerLocation={Boolean(playerLocation)}
-                  onPreviewBuild={previewBuild}
-                />
-              )
+              <BuildPanel
+                shopTypes={availableShopTypes}
+                selectedBuildType={selectedBuildType}
+                onSelectBuildType={setSelectedBuildType}
+                shopName={shopName}
+                setShopName={setShopName}
+                pointsBalance={game.profile?.pointsBalance ?? 0}
+                isBusy={isBusy}
+                isDemoMode={game.isDemoMode}
+                hasPlayerLocation={Boolean(playerLocation)}
+                disabledReason={getBuildDisabledReason(isExportPlayer, ownExportPlayerHome, game.homeBase)}
+                onPreviewBuild={previewBuild}
+              />
             ) : null}
 
             {activePanel === "shops" ? (
@@ -1349,6 +1361,7 @@ function BuildPanel({
   isBusy,
   isDemoMode,
   hasPlayerLocation,
+  disabledReason,
   onPreviewBuild
 }: {
   shopTypes: ShopTypeOption[];
@@ -1360,6 +1373,7 @@ function BuildPanel({
   isBusy: boolean;
   isDemoMode: boolean;
   hasPlayerLocation: boolean;
+  disabledReason?: string | null;
   onPreviewBuild: () => void;
 }) {
   const selectedOption = shopTypes.find((option) => option.pinType === selectedBuildType) ?? null;
@@ -1415,11 +1429,12 @@ function BuildPanel({
         <span>Location</span>
         <strong>{isDemoMode ? "Simulated" : hasPlayerLocation ? "GPS ready" : "GPS on preview"}</strong>
       </div>
+      {disabledReason ? <p className="muted">{disabledReason}</p> : null}
       <button
         className="primary-action"
         type="button"
         onClick={onPreviewBuild}
-        disabled={isBusy || pointsBalance < selectedOption.costPoints}
+        disabled={isBusy || Boolean(disabledReason) || pointsBalance < selectedOption.costPoints}
       >
         <MapPin size={20} />
         Preview Location
@@ -1657,7 +1672,11 @@ function BuildConfirmBar({
       <div>
         <span>{build.label}</span>
         <strong>{build.name}</strong>
-        <small>{formatTokenAmount(build.costPoints)}</small>
+        <small>
+          {build.isExportPlacement && build.physicalLocation
+            ? `${formatTokenAmount(build.costPoints)} · Edinburgh ${formatCoordinatePair(build.location)} · physical ${formatCoordinatePair(build.physicalLocation)}`
+            : formatTokenAmount(build.costPoints)}
+        </small>
       </div>
       <div className="build-confirm-actions">
         <button className="secondary-action" type="button" onClick={onCancel} disabled={isBusy}>
@@ -2759,6 +2778,17 @@ function formatRadiusMeters(radiusM: number): string {
 
 function formatCoordinatePair(center: EventCenter): string {
   return `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`;
+}
+
+function getBuildDisabledReason(
+  isExportPlayer: boolean,
+  exportHomeBase: HomeBase | null,
+  gameHomeBase: HomeBase | null
+): string | null {
+  if (!isExportPlayer) return null;
+  if (!exportHomeBase) return "An admin needs to set your export home base before you can build.";
+  if (!gameHomeBase) return "An admin needs to set the game home base before export shops can be built.";
+  return null;
 }
 
 function isWarehouseCreditAvailable(warehouse: Warehouse): boolean {

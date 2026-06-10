@@ -8,7 +8,8 @@ import {
   baseHourlyRate,
   competitionPressure,
   distanceMeters,
-  getBusyLabel
+  getBusyLabel,
+  projectPointBetweenHomeBases
 } from "./geo";
 import type {
   BeginDemandEventInput,
@@ -130,7 +131,7 @@ export class DemoAdapter implements GameAdapter {
     const cost = getPinCost(input.pinType);
 
     if (this.store.profile.playerMode === "export") {
-      throw new Error("Export players build shops through warehouses.");
+      throw new Error("Export players must build through export placement.");
     }
     if (this.store.profile.pointsBalance < cost) {
       throw new Error("Not enough tokens.");
@@ -147,6 +148,8 @@ export class DemoAdapter implements GameAdapter {
       radiusLevel: 0,
       lat: input.lat,
       lng: input.lng,
+      physicalLat: null,
+      physicalLng: null,
       busyScore: estimateDemoBusyScore(input.lat, input.lng),
       busyLabel: "Steady",
       placedAt: now.toISOString(),
@@ -433,16 +436,14 @@ export class DemoAdapter implements GameAdapter {
   }
 
   async exportPlacePin(input: ExportPlacePinInput): Promise<GameState> {
-    const warehouse = this.store.warehouses.find((item) => item.id === input.warehouseId);
     if (this.store.profile.playerMode !== "export") throw new Error("Only export players can build this way.");
-    if (!warehouse) throw new Error("Warehouse was not found.");
-    if (!warehouse.creditAvailable) throw new Error("Warehouse needs restocking.");
 
     const homeBase = this.store.homeBase;
+    const exportHomeBase = this.getOwnExportHomeBase();
     if (!homeBase) throw new Error("Home base has not been set.");
-    const distance = distanceMeters(homeBase, input);
-    if (distance > warehouse.radiusM) throw new Error("Shop is outside this warehouse's home-base reach.");
     if (this.store.profile.pointsBalance < GAME_CONFIG.exportShopCost) throw new Error("Not enough tokens.");
+
+    const projected = projectPointBetweenHomeBases(exportHomeBase, homeBase, input);
 
     const now = new Date();
     const pin: GamePin = {
@@ -453,9 +454,11 @@ export class DemoAdapter implements GameAdapter {
       name: input.name.trim() || "New Shop",
       pinType: input.pinType,
       radiusLevel: 0,
-      lat: input.lat,
-      lng: input.lng,
-      busyScore: estimateDemoBusyScore(input.lat, input.lng),
+      lat: projected.lat,
+      lng: projected.lng,
+      physicalLat: input.lat,
+      physicalLng: input.lng,
+      busyScore: estimateDemoBusyScore(projected.lat, projected.lng),
       busyLabel: "Steady",
       placedAt: now.toISOString(),
       visibleAt: now.toISOString(),
@@ -475,39 +478,33 @@ export class DemoAdapter implements GameAdapter {
     pin.busyLabel = getBusyLabel(pin.busyScore);
     this.store.profile.pointsBalance -= GAME_CONFIG.exportShopCost;
     this.store.pins = [pin, ...this.store.pins];
-    warehouse.creditAvailable = false;
-    warehouse.status = "cooldown";
-    warehouse.lastUsedAt = now.toISOString();
-    warehouse.availableAt = addHours(now, GAME_CONFIG.warehouseRestockHours).toISOString();
     this.recalculatePins();
     saveStore(this.store);
     return this.state();
   }
 
   async exportRestockPin(input: ExportRestockPinInput): Promise<GameState> {
-    const warehouse = this.store.warehouses.find((item) => item.id === input.warehouseId);
     const pin = this.store.pins.find((item) => item.id === input.pinId);
     if (this.store.profile.playerMode !== "export") throw new Error("Only export players can restock this way.");
-    if (!warehouse) throw new Error("Warehouse was not found.");
     if (!pin) throw new Error("Pin was not found.");
-    if (!warehouse.creditAvailable) throw new Error("Warehouse needs restocking.");
     if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("This is not your shop.");
     if (pin.pinType !== "standard") throw new Error("Kiosks cannot be restocked.");
-    if (!this.store.homeBase) throw new Error("Home base has not been set.");
-    if (distanceMeters(this.store.homeBase, pin) > warehouse.radiusM) {
-      throw new Error("This shop is outside the selected warehouse's home-base reach.");
-    }
     if (this.store.profile.pointsBalance < GAME_CONFIG.restockCost) throw new Error("Not enough tokens.");
+
+    const restockTarget = hasPhysicalPinCoordinate(pin)
+      ? { lat: pin.physicalLat, lng: pin.physicalLng }
+      : { lat: pin.lat, lng: pin.lng };
+    const distance = distanceMeters(restockTarget, input);
+
+    if (distance > GAME_CONFIG.restockRadiusM) {
+      throw new Error(`You are ${Math.round(distance)}m away.`);
+    }
 
     const now = new Date();
     this.store.profile.pointsBalance -= GAME_CONFIG.restockCost;
     pin.status = "stocked";
     pin.lastRestockedAt = now.toISOString();
     pin.restockDueAt = addHours(now, GAME_CONFIG.standardRestockHours).toISOString();
-    warehouse.creditAvailable = false;
-    warehouse.status = "cooldown";
-    warehouse.lastUsedAt = now.toISOString();
-    warehouse.availableAt = addHours(now, GAME_CONFIG.warehouseRestockHours).toISOString();
     this.recalculatePins();
     saveStore(this.store);
     return this.state();
@@ -543,7 +540,7 @@ export class DemoAdapter implements GameAdapter {
     const pin = this.store.pins.find((item) => item.id === input.pinId);
 
     if (this.store.profile.playerMode === "export") {
-      throw new Error("Export players restock shops through warehouses.");
+      throw new Error("Export players must restock through export placement.");
     }
     if (!pin) throw new Error("Pin was not found.");
     if (pin.ownerId !== DEMO_PLAYER_ID) throw new Error("This is not your pin.");
@@ -569,6 +566,12 @@ export class DemoAdapter implements GameAdapter {
     this.recalculatePins();
     saveStore(this.store);
     return this.state();
+  }
+
+  private getOwnExportHomeBase(): HomeBase {
+    const homeBase = this.store.exportPlayers.find((item) => item.playerId === this.store.profile.id)?.homeBase;
+    if (!homeBase) throw new Error("An admin needs to set your export home base first.");
+    return homeBase;
   }
 
   private state(): GameState {
@@ -774,6 +777,8 @@ function normalizePin(pin: Partial<GamePin> | undefined, fallback?: GamePin): Ga
     radiusLevel: normalizeRadiusLevel(pin?.radiusLevel ?? safeFallback.radiusLevel),
     lat: Number.isFinite(pin?.lat) ? Number(pin?.lat) : safeFallback.lat,
     lng: Number.isFinite(pin?.lng) ? Number(pin?.lng) : safeFallback.lng,
+    physicalLat: safeOptionalCoordinate(pin?.physicalLat, 90),
+    physicalLng: safeOptionalCoordinate(pin?.physicalLng, 180),
     busyScore,
     busyLabel: pin?.busyLabel || getBusyLabel(busyScore),
     placedAt: pin?.placedAt || safeFallback.placedAt,
@@ -1046,6 +1051,8 @@ function createDemoPin(
     radiusLevel: 0,
     lat,
     lng,
+    physicalLat: null,
+    physicalLng: null,
     busyScore,
     busyLabel: getBusyLabel(busyScore),
     placedAt: now.toISOString(),
@@ -1190,6 +1197,23 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 function getPinCost(pinType: PlacePinInput["pinType"]): number {
   return pinType === "temporary" ? GAME_CONFIG.temporaryPinCost : GAME_CONFIG.standardPinCost;
+}
+
+function safeOptionalCoordinate(value: unknown, maxAbs: number): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || Math.abs(parsed) > maxAbs) return null;
+  return parsed;
+}
+
+function hasPhysicalPinCoordinate(
+  pin: GamePin
+): pin is GamePin & { physicalLat: number; physicalLng: number } {
+  return (
+    Number.isFinite(pin.physicalLat) &&
+    Number.isFinite(pin.physicalLng) &&
+    Math.abs(pin.physicalLat as number) <= 90 &&
+    Math.abs(pin.physicalLng as number) <= 180
+  );
 }
 
 function normalizeRadiusLevel(value: unknown): number {

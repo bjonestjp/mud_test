@@ -338,11 +338,11 @@ class SupabaseGameAdapter implements GameAdapter {
 
   async exportPlacePin(input: ExportPlacePinInput): Promise<GameState> {
     const { error } = await this.supabase.rpc("export_place_pin", {
-      p_warehouse_id: input.warehouseId,
       p_lat: input.lat,
       p_lng: input.lng,
       p_name: input.name,
-      p_pin_type: input.pinType
+      p_pin_type: input.pinType,
+      p_accuracy_m: input.accuracy
     });
 
     if (error) throw error;
@@ -351,8 +351,10 @@ class SupabaseGameAdapter implements GameAdapter {
 
   async exportRestockPin(input: ExportRestockPinInput): Promise<GameState> {
     const { error } = await this.supabase.rpc("export_restock_pin", {
-      p_warehouse_id: input.warehouseId,
-      p_pin_id: input.pinId
+      p_pin_id: input.pinId,
+      p_lat: input.lat,
+      p_lng: input.lng,
+      p_accuracy_m: input.accuracy
     });
 
     if (error) throw error;
@@ -633,6 +635,8 @@ function mapPinRow(row: Record<string, unknown>): GamePin {
     radiusLevel: normalizeRadiusLevel(row.radius_level),
     lat: Number(row.lat),
     lng: Number(row.lng),
+    physicalLat: safeOptionalCoordinate(row.physical_lat, 90),
+    physicalLng: safeOptionalCoordinate(row.physical_lng, 180),
     busyScore: Number(row.busy_score),
     busyLabel: row.busy_label as GamePin["busyLabel"],
     placedAt: String(row.placed_at),
@@ -661,6 +665,8 @@ function mapDirectPinRow(row: Record<string, unknown>): GamePin {
     radiusLevel: normalizeRadiusLevel(row.radius_level),
     lat: Number(row.lat),
     lng: Number(row.lng),
+    physicalLat: safeOptionalCoordinate(row.physical_lat, 90),
+    physicalLng: safeOptionalCoordinate(row.physical_lng, 180),
     busyScore,
     busyLabel: getBusyLabel(busyScore),
     placedAt: String(row.placed_at),
@@ -874,6 +880,12 @@ function isActiveDemandEvent(event: DemandEvent): boolean {
 function safeNumber(value: unknown, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function safeOptionalCoordinate(value: unknown, maxAbs: number): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || Math.abs(parsed) > maxAbs) return null;
+  return parsed;
 }
 
 function getRpcStringField(value: unknown, key: string): string | null {

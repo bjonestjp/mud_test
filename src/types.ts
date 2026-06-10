@@ -27,6 +27,8 @@ export interface GamePin {
   radiusLevel: number;
   lat: number;
   lng: number;
+  physicalLat: number | null;
+  physicalLng: number | null;
   busyScore: number;
   busyLabel: BusyLabel;
   placedAt: string;
@@ -216,16 +218,18 @@ export interface RestockWarehouseInput {
 }
 
 export interface ExportPlacePinInput {
-  warehouseId: string;
   lat: number;
   lng: number;
+  accuracy: number | null;
   name: string;
   pinType: PinType;
 }
 
 export interface ExportRestockPinInput {
-  warehouseId: string;
   pinId: string;
+  lat: number;
+  lng: number;
+  accuracy: number | null;
 }
 
 export interface UpdateHomeBaseInput {

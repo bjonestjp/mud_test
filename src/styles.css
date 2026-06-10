@@ -183,6 +183,16 @@ button:disabled {
   opacity: 0.58;
 }
 
+.pin-marker--mirror {
+  opacity: 0.72;
+}
+
+.pin-marker--mirror::before {
+  border-style: dashed;
+  background:
+    radial-gradient(circle at center, var(--pin-color, var(--red)) 0 45%, #fff 46% 54%, var(--pin-color, var(--red)) 55%);
+}
+
 .pin-marker--affected {
   z-index: 2;
 }
