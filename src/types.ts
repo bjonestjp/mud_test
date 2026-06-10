@@ -221,6 +221,8 @@ export interface ExportPlacePinInput {
   lat: number;
   lng: number;
   accuracy: number | null;
+  projectedLat?: number;
+  projectedLng?: number;
   name: string;
   pinType: PinType;
 }

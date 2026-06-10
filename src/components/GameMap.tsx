@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type GeoJSONSource, type LngLatLike, type Map, type Marker } from "maplibre-gl";
 import { competitionRadiusForLevel, EDINBURGH_CENTER, GAME_CONFIG } from "../lib/constants";
 import { competitionPressure, distanceMeters, projectPointBetweenHomeBases } from "../lib/geo";
@@ -127,7 +127,7 @@ export function GameMap({
   const homeBaseMarkerRef = useRef<Marker | null>(null);
   const demandEventLabelMarkersRef = useRef<Marker[]>([]);
   const exportTargetConstraintRef = useRef<ExportTargetConstraint | null>(null);
-  const selectedDisplayLocationRef = useRef<{ pinId: string; lat: number; lng: number } | null>(null);
+  const [selectedDisplayLocation, setSelectedDisplayLocation] = useState<{ pinId: string; lat: number; lng: number } | null>(null);
   const isClampingCenterRef = useRef(false);
   const onMapCenterChangeRef = useRef(onMapCenterChange);
   const visiblePins = useMemo(() => pins.filter(hasValidCoordinate), [pins]);
@@ -139,8 +139,8 @@ export function GameMap({
     () => visiblePins.find((pin) => pin.id === selectedPinId) ?? null,
     [selectedPinId, visiblePins]
   );
-  const selectedRadiusCenter = selectedPin && selectedDisplayLocationRef.current?.pinId === selectedPin.id
-    ? selectedDisplayLocationRef.current
+  const selectedRadiusCenter = selectedPin && selectedDisplayLocation?.pinId === selectedPin.id
+    ? selectedDisplayLocation
     : selectedPin;
   const affectedPinIds = useMemo(() => {
     const ids = new Set<string>();
@@ -156,6 +156,17 @@ export function GameMap({
 
     return ids;
   }, [selectedPin, visiblePins]);
+
+  useEffect(() => {
+    if (!selectedPinId) {
+      setSelectedDisplayLocation(null);
+      return;
+    }
+
+    setSelectedDisplayLocation((current) =>
+      current?.pinId === selectedPinId ? current : null
+    );
+  }, [selectedPinId]);
 
   useEffect(() => {
     onMapCenterChangeRef.current = onMapCenterChange;
@@ -289,11 +300,11 @@ export function GameMap({
 
       element.addEventListener("click", (event) => {
         event.stopPropagation();
-        selectedDisplayLocationRef.current = {
+        setSelectedDisplayLocation({
           pinId: pin.id,
           lat: displayPin.lat,
           lng: displayPin.lng
-        };
+        });
         onSelectPin(pin);
       });
 

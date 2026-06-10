@@ -342,7 +342,9 @@ class SupabaseGameAdapter implements GameAdapter {
       p_lng: input.lng,
       p_name: input.name,
       p_pin_type: input.pinType,
-      p_accuracy_m: input.accuracy
+      p_accuracy_m: input.accuracy,
+      p_projected_lat: input.projectedLat ?? null,
+      p_projected_lng: input.projectedLng ?? null
     });
 
     if (error) throw error;

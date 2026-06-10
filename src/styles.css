@@ -184,13 +184,19 @@ button:disabled {
 }
 
 .pin-marker--mirror {
-  opacity: 0.72;
+  opacity: 0.86;
 }
 
 .pin-marker--mirror::before {
-  border-style: dashed;
-  background:
-    radial-gradient(circle at center, var(--pin-color, var(--red)) 0 45%, #fff 46% 54%, var(--pin-color, var(--red)) 55%);
+  border-color: var(--pin-color, var(--red));
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.74),
+    0 5px 16px rgba(0, 0, 0, 0.2);
+}
+
+.pin-marker--mirror::after {
+  background: var(--pin-color, var(--red));
 }
 
 .pin-marker--affected {

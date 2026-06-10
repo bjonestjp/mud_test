@@ -443,7 +443,9 @@ export class DemoAdapter implements GameAdapter {
     if (!homeBase) throw new Error("Home base has not been set.");
     if (this.store.profile.pointsBalance < GAME_CONFIG.exportShopCost) throw new Error("Not enough tokens.");
 
-    const projected = projectPointBetweenHomeBases(exportHomeBase, homeBase, input);
+    const projected = hasValidProjectedCoordinate(input)
+      ? { lat: input.projectedLat, lng: input.projectedLng }
+      : projectPointBetweenHomeBases(exportHomeBase, homeBase, input);
 
     const now = new Date();
     const pin: GamePin = {
@@ -1213,6 +1215,17 @@ function hasPhysicalPinCoordinate(
     Number.isFinite(pin.physicalLng) &&
     Math.abs(pin.physicalLat as number) <= 90 &&
     Math.abs(pin.physicalLng as number) <= 180
+  );
+}
+
+function hasValidProjectedCoordinate(
+  input: ExportPlacePinInput
+): input is ExportPlacePinInput & { projectedLat: number; projectedLng: number } {
+  return (
+    Number.isFinite(input.projectedLat) &&
+    Number.isFinite(input.projectedLng) &&
+    Math.abs(input.projectedLat as number) <= 90 &&
+    Math.abs(input.projectedLng as number) <= 180
   );
 }
 

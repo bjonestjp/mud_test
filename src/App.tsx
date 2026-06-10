@@ -418,6 +418,8 @@ export default function App() {
             lat: pendingBuild.physicalLocation?.lat ?? pendingBuild.location.lat,
             lng: pendingBuild.physicalLocation?.lng ?? pendingBuild.location.lng,
             accuracy: pendingBuild.physicalLocation?.accuracy ?? pendingBuild.location.accuracy,
+            projectedLat: pendingBuild.location.lat,
+            projectedLng: pendingBuild.location.lng,
             name: pendingBuild.name,
             pinType: pendingBuild.pinType
           })
