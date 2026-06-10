@@ -226,6 +226,23 @@ button:disabled {
     0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
+.shop-zone-marker {
+  position: absolute;
+  z-index: 0;
+  border: 2px solid rgba(33, 116, 92, 0.58);
+  border-radius: 50%;
+  background: rgba(33, 116, 92, 0.07);
+  pointer-events: none;
+}
+
+.shop-zone-marker--mirror {
+  border-style: dashed;
+}
+
+.shop-zone-marker--inactive {
+  opacity: 0.48;
+}
+
 .pin-impact-badge {
   position: absolute;
   right: -7px;

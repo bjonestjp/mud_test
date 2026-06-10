@@ -56,6 +56,12 @@ interface ProjectedMarkerEntry extends MarkerEntry {
   point: { x: number; y: number };
 }
 
+interface ZoneMarkerEntry {
+  marker: Marker;
+  element: HTMLDivElement;
+  displayPin: DisplayPin;
+}
+
 interface ExportTargetConstraint {
   center: { lat: number; lng: number };
   radiusM: number;
@@ -120,6 +126,7 @@ export function GameMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
+  const zoneMarkersRef = useRef<ZoneMarkerEntry[]>([]);
   const warehouseMarkersRef = useRef<Marker[]>([]);
   const playerLocationMarkerRef = useRef<Marker | null>(null);
   const buildPreviewMarkerRef = useRef<Marker | null>(null);
@@ -225,6 +232,8 @@ export function GameMap({
     return () => {
       markersRef.current.forEach((entry) => entry.marker.remove());
       markersRef.current = [];
+      zoneMarkersRef.current.forEach((entry) => entry.marker.remove());
+      zoneMarkersRef.current = [];
       warehouseMarkersRef.current.forEach((marker) => marker.remove());
       warehouseMarkersRef.current = [];
       playerLocationMarkerRef.current?.remove();
@@ -381,24 +390,39 @@ export function GameMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const zoneData = createDisplayShopRadiusFeatureCollection(displayPins);
 
-    const updateAllRadiusLayer = () => {
-      if (!map.isStyleLoaded()) return;
+    zoneMarkersRef.current.forEach((entry) => entry.marker.remove());
+    zoneMarkersRef.current = [];
 
-      ensureAllShopRadiusLayers(map);
-      const source = map.getSource(ALL_RADIUS_SOURCE_ID) as GeoJSONSource | undefined;
-      source?.setData(zoneData);
-      setShopRadiusLayerVisibility(map, showAllRadii);
+    if (!showAllRadii) return;
+
+    zoneMarkersRef.current = displayPins.map((displayPin) => {
+      const element = createShopZoneMarkerElement(displayPin);
+      const marker = new maplibregl.Marker({
+        element,
+        anchor: "center"
+      })
+        .setLngLat([displayPin.lng, displayPin.lat])
+        .addTo(map);
+
+      return { marker, element, displayPin };
+    });
+
+    const updateZoneMarkers = () => {
+      zoneMarkersRef.current.forEach((entry) => updateShopZoneMarkerSize(map, entry));
     };
 
-    updateAllRadiusLayer();
-    map.once("load", updateAllRadiusLayer);
-    map.on("styledata", updateAllRadiusLayer);
+    updateZoneMarkers();
+    map.on("move", updateZoneMarkers);
+    map.on("zoom", updateZoneMarkers);
+    map.on("resize", updateZoneMarkers);
 
     return () => {
-      map.off("load", updateAllRadiusLayer);
-      map.off("styledata", updateAllRadiusLayer);
+      map.off("move", updateZoneMarkers);
+      map.off("zoom", updateZoneMarkers);
+      map.off("resize", updateZoneMarkers);
+      zoneMarkersRef.current.forEach((entry) => entry.marker.remove());
+      zoneMarkersRef.current = [];
     };
   }, [displayPins, showAllRadii]);
 
@@ -1046,6 +1070,57 @@ function createDisplayShopRadiusFeatureCollection(
       }
     }))
   };
+}
+
+function createShopZoneMarkerElement(displayPin: DisplayPin): HTMLDivElement {
+  const element = document.createElement("div");
+  const zoneColor = displayPin.pin.ownerColor;
+
+  element.className = [
+    "shop-zone-marker",
+    displayPin.isMirror ? "shop-zone-marker--mirror" : "",
+    displayPin.pin.status !== "stocked" ? "shop-zone-marker--inactive" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  element.title = displayPin.isMirror
+    ? `${displayPin.pin.name} mirror zone`
+    : `${displayPin.pin.name} zone`;
+  element.style.borderColor = toRgba(zoneColor, displayPin.isMirror ? 0.7 : 0.58);
+  element.style.backgroundColor = toRgba(zoneColor, displayPin.isMirror ? 0.045 : 0.07);
+
+  return element;
+}
+
+function updateShopZoneMarkerSize(map: Map, entry: ZoneMarkerEntry): void {
+  const center = {
+    lat: entry.displayPin.lat,
+    lng: entry.displayPin.lng
+  };
+  const radiusM = competitionRadiusForLevel(entry.displayPin.pin.radiusLevel);
+  const edge = destinationCoordinate(center, Math.PI / 2, radiusM);
+  const centerPoint = map.project([center.lng, center.lat]);
+  const edgePoint = map.project([edge.lng, edge.lat]);
+  const pixelRadius = Math.max(
+    8,
+    Math.min(5000, screenDistance(centerPoint, edgePoint))
+  );
+  const diameter = Math.round(pixelRadius * 2);
+
+  entry.element.style.width = `${diameter}px`;
+  entry.element.style.height = `${diameter}px`;
+}
+
+function toRgba(color: string, alpha: number): string {
+  const match = /^#?([0-9a-f]{6})$/i.exec(color.trim());
+  if (!match) return `rgba(33, 116, 92, ${alpha})`;
+
+  const hex = match[1];
+  const red = Number.parseInt(hex.slice(0, 2), 16);
+  const green = Number.parseInt(hex.slice(2, 4), 16);
+  const blue = Number.parseInt(hex.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function hasNearbyMirror(
